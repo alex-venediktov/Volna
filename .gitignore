@@ -1,0 +1,22 @@
+# Секреты и локальное окружение — никогда не коммитятся
+.env
+.env.local
+.env.*.local
+*.pat
+*.token
+
+# Состояние и журналы «Волны» (если репозиторий используется и как рабочий)
+.volna/state.json
+.volna/journal/
+.volna/project.local.md
+
+# Локальные настройки Claude Code (пути машины, персональные разрешения, временные файлы)
+.claude/
+
+# Служебное
+node_modules/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+Thumbs.db

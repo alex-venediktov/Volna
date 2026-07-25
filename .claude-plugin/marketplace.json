@@ -1,0 +1,22 @@
+{
+  "name": "volna",
+  "description": "Маркетплейс «Волны»: сопровождение задачи в одной сессии Claude Code",
+  "version": "0.1.0",
+  "owner": {
+    "name": "Alexey Venediktov"
+  },
+  "plugins": [
+    {
+      "name": "volna",
+      "source": "./",
+      "description": "Мягкий флоу этапов задачи, журнал работ и накопление опыта в одном контексте Claude Code",
+      "version": "0.1.0"
+    },
+    {
+      "name": "volna-craft",
+      "source": "./plugins/volna-craft",
+      "description": "Ремесленные правила: порт по эталону, стиль комментариев и коммитов, тесты, фикстуры, визуальная сверка",
+      "version": "0.1.0"
+    }
+  ]
+}

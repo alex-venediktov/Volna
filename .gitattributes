@@ -1,0 +1,17 @@
+# Переводы строк нормализуются в репозитории, в рабочей копии - по платформе
+* text=auto
+
+# PowerShell на Windows: CRLF в рабочей копии. Кодировка install.ps1 - UTF-8 с BOM,
+# без BOM PowerShell 5.1 читает кириллицу как ANSI и падает на разборе.
+*.ps1 text eol=crlf
+
+# Скрипты и код, запускаемые кросс-платформенно
+*.py text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+# Бинарное - не трогать
+*.png binary
+*.jpg binary
+*.pyc binary

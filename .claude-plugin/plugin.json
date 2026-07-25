@@ -1,0 +1,13 @@
+{
+  "name": "volna",
+  "description": "Сопровождение одной задачи в одном контексте Claude Code: мягкий флоу этапов от приёма задачи до PR и закрытия, журнал работ, накопление командного опыта",
+  "version": "0.1.0",
+  "author": {
+    "name": "Alexey Venediktov"
+  },
+  "homepage": "https://github.com/alex-venediktov/Volna",
+  "repository": "https://github.com/alex-venediktov/Volna",
+  "keywords": ["workflow", "journal", "task-flow", "delphi-port", "tfs"],
+  "skills": ["./skills"],
+  "commands": ["./commands"]
+}
