@@ -2,7 +2,7 @@
 task: <ID>
 title: "<заголовок из TFS>"
 type: <bug|story|task>
-tfs: "<ссылка на work item>"
+tracker: "<ссылка на задачу в трекере>"
 parent:                    # родительская US — источник постановки (для bug)
 fix_task:                  # id задачи-фикса в TFS (появится на push-pr)
 branch: <bugfix|feature>/<ID>-<slug>

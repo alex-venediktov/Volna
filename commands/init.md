@@ -10,6 +10,8 @@ argument-hint: [путь к рабочему репозиторию]
    Существующие файлы **не перезаписывай** — дополняй по согласию человека.
 2. **Создай отсутствующее:**
    - `.volna/journal/`, `.volna/knowledge/`;
+   - `.volna/knowledge/INDEX.md` из `skills/volna-journal/templates/knowledge-index.template.md`
+     — без указателя этапы не найдут накопленное знание;
    - `.volna/project.md` из `skills/volna-flow/templates/project.template.md`;
    - `.env` из `.env.example` «Волны».
 3. **Дополни `.gitignore`** правилами: `.env`, `.env.local`, `.volna/state.json`,

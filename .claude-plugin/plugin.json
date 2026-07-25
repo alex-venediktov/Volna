@@ -9,5 +9,6 @@
   "repository": "https://github.com/alex-venediktov/Volna",
   "keywords": ["workflow", "journal", "task-flow", "delphi-port", "tfs"],
   "skills": ["./skills"],
-  "commands": ["./commands"]
+  "commands": ["./commands"],
+  "hooks": "./hooks/hooks.json"
 }

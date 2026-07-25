@@ -138,6 +138,14 @@ foreach ($dir in @($volnaDir, (Join-Path $volnaDir 'journal'), (Join-Path $volna
 }
 Write-Ok '.volna/{journal,knowledge}'
 
+$indexMd = Join-Path (Join-Path $volnaDir 'knowledge') 'INDEX.md'
+if (Test-Path -LiteralPath $indexMd) {
+    Write-Skip '.volna/knowledge/INDEX.md уже есть - не тронут'
+} else {
+    Write-Utf8NoBom $indexMd (Get-Template 'skills/volna-journal/templates/knowledge-index.template.md')
+    Write-Ok '.volna/knowledge/INDEX.md создан (пустой указатель по этапам)'
+}
+
 $projectMd = Join-Path $volnaDir 'project.md'
 if (Test-Path -LiteralPath $projectMd) {
     Write-Skip '.volna/project.md уже есть - не тронут'
