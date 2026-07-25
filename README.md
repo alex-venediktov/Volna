@@ -12,7 +12,7 @@
 |---|---|---|
 | **W1** | флоу и журнал: скиллы, детали 13 этапов, шаблоны, команды | **проверено на живой задаче**, замечания влиты |
 | **W2** | hooks: шапка сессии, гейт на commit/push, PreCompact | **написано**, 27 проверок проходят, ждёт живой сессии |
-| W3 | интеграции: CLI над трекером, семантический поиск по журналам | не начата |
+| **W3** | интеграции: CLI над трекером, `/volna:recall` | **написано**, 38 проверок проходят |
 | W4 | onboarding для команды, документ по стоимости | частично (плагины и установка готовы) |
 
 ## Установка
@@ -44,6 +44,7 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 |---|---|
 | `/volna:init [путь]` | развернуть проектную часть: `.volna/`, `.env`, правила `.gitignore` |
 | `/volna:doctor` | проверить настройки, доступы и гигиену секретов |
+| `/volna:recall <тема>` | найти в знаниях и прошлых журналах то, что относится к теме |
 | `/volna:task <id>` | принять задачу: гейт чистого дерева, ветка, журнал (этап `intake`) |
 | `/volna:status` | где мы: этап k/13, пройденное, пропущенное, открытые вопросы |
 | `/volna:stage <этап>` | перейти к любому этапу флоу |
@@ -85,10 +86,13 @@ skills/
   volna-journal/SKILL.md           формат журнала, чек-пойнт, извлечение опыта
   volna-journal/templates/journal.template.md
 commands/                          init, doctor, task, stage, status, checkpoint, journal,
-                                   skip, back, close, next, off
+                                   skip, back, close, next, off, recall
 hooks/                             шапка сессии, гейт на commit/push, напоминание перед compact
 hooks/test-hooks.mjs               27 проверок hooks на синтетическом .volna
 lib/tfs-client.mjs                 клиент REST трекера (TFS / Azure DevOps Server)
+lib/env.mjs                        чтение .env без зависимостей
+bin/volna-tfs.mjs                  CLI над трекером: get/comment/time/link-pr/attach/state
+bin/test-volna-tfs.mjs             38 проверок CLI на поддельном клиенте, без сети
 install.ps1                        установка одной командой PowerShell
 .env.example                       контракт окружения: адреса, пути, путь к токену
 docs/STATUS.md                     состояние работ, решения, что осталось

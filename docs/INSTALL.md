@@ -118,6 +118,36 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 Проверить hooks без живой сессии: `node hooks/test-hooks.mjs .` из корня «Волны» — 27 проверок
 на синтетическом `.volna`, включая поведение при битом `state.json` и удалённом каталоге.
 
+## CLI над трекером
+
+Плагин приносит `bin/volna-tfs.mjs` — чтение задач и запись в трекер из Bash. Путь зависит от
+версии плагина, поэтому определять его так:
+
+```bash
+CLI=$(ls -d ~/.claude/plugins/cache/volna/volna/*/bin/volna-tfs.mjs | sort -V | tail -1)
+node "$CLI" check          # доступ есть?
+node "$CLI" get 21571      # постановка, обсуждение, связи, вложения одним markdown
+```
+
+Удобно один раз записать эту команду в `.volna/project.md` (раздел «Команды») — тогда этапы
+берут её оттуда, а не вычисляют путь каждый раз.
+
+Запись требует `--confirm`, и ставит его **человек**:
+
+```bash
+node "$CLI" comment 21571 "коротко о правке" --confirm
+node "$CLI" time 21571 1.5 --confirm            # прибавить часы; --set чтобы заменить
+node "$CLI" link-pr 21571 <url PR> --confirm
+node "$CLI" attach 21571 после.png --discussion --comment "исправлено" --confirm
+node "$CLI" state 21571 Resolved --assign "<тестер>" --confirm
+```
+
+Без `--confirm` команда печатает, что собиралась изменить, и выходит с кодом 1 — ничего не
+отправляя. Адреса и путь к файлу с PAT — из `.env` (см. `.env.example`).
+
+Проверить CLI без сети: `node bin/test-volna-tfs.mjs` из корня «Волны» — 38 проверок на
+поддельном клиенте.
+
 ## Локальная разработка самой «Волны»
 
 Правки в «Волне» должны подхватываться сразу, без переустановки плагина. Из корня рабочего
