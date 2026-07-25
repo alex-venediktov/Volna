@@ -10,6 +10,7 @@
  * Использование:
  *   volna-tfs check                        проверить доступ (для /volna:doctor)
  *   volna-tfs get <id>                     задача: поля, постановка, обсуждение, связи, вложения
+ *   volna-tfs query <запрос>               выборка WIQL: id, тип, состояние, заголовок
  *   volna-tfs comment <id> <текст>         комментарий в обсуждение (markdown -> HTML)
  *   volna-tfs time <id> <часы> [--set]     затраченное время: прибавить или заменить
  *   volna-tfs link-pr <id> <url> [--title] ссылка на PR
@@ -36,7 +37,7 @@ export function parseArgs(argv) {
     if (!a.startsWith("--")) { positional.push(a); continue; }
     const name = a.slice(2);
     // флаги со значением: --comment "текст", --assign "кто"
-    if (["comment", "assign", "reason", "title"].includes(name)) {
+    if (["comment", "assign", "reason", "title", "top"].includes(name)) {
       flags[name] = argv[++i] ?? "";
     } else {
       flags[name] = true;
@@ -85,6 +86,7 @@ export async function run(argv, deps = {}) {
     switch (command) {
       case "check": return await cmdCheck(client, log);
       case "get": return await cmdGet(client, args, flags, log, err);
+      case "query": return await cmdQuery(client, args, flags, log, err);
       case "comment": return await cmdComment(client, args, log, err);
       case "time": return await cmdTime(client, args, flags, log, err);
       case "link-pr": return await cmdLinkPr(client, args, flags, log, err);
@@ -161,6 +163,46 @@ async function cmdGet(client, args, flags, log, err) {
 
   log(out.join("\n"));
   return 0;
+}
+
+async function cmdQuery(client, args, flags, log, err) {
+  const text = args.join(" ").trim();
+  if (!text) {
+    err("Нужен запрос: volna-tfs query <WIQL или условие после WHERE>");
+    return 1;
+  }
+
+  const ids = await client.wiql(toWiql(text));
+  if (!ids.length) { log("Ничего не найдено."); return 0; }
+  if (flags.ids) { log(ids.join(",")); return 0; }
+
+  const top = Number(flags.top);
+  const shown = Number.isFinite(top) && top > 0 ? ids.slice(0, top) : ids;
+  const items = await client.getWorkItems(shown);
+  if (flags.json) { log(JSON.stringify(items, null, 2)); return 0; }
+
+  // порядок сортировки задаёт запрос, а пакетное чтение его не обещает
+  const byId = new Map(items.map((w) => [String(w.id), w]));
+  const out = [`Найдено: ${ids.length}` +
+    (shown.length < ids.length ? `, показано ${shown.length} (--top)` : ""), ""];
+  for (const id of shown) {
+    const wi = byId.get(String(id));
+    if (!wi) { out.push(`- ${id} · нет доступа к задаче`); continue; }
+    const s = summarize(wi);
+    out.push(`- ${s.id} · ${s.type} · ${s.state}` +
+      `${s.assignedTo ? ` · ${s.assignedTo}` : ""} · ${s.title}`);
+  }
+  if (shown.length < ids.length) {
+    out.push("", "Показаны не все: подробности по остальным - уточни запрос или подними --top.");
+  }
+  log(out.join("\n"));
+  return 0;
+}
+
+/** Условие после WHERE дополнить до полного WIQL; готовый SELECT уходит как есть. */
+function toWiql(text) {
+  if (/^\s*select\b/i.test(text)) return text;
+  return `SELECT [System.Id] FROM WorkItems WHERE ${text} ORDER BY [System.Id] DESC`;
 }
 
 // -- команды записи (только с --confirm) --------------------------------------
@@ -264,6 +306,7 @@ function usage() {
     "",
     "  check                                   проверить доступ",
     "  get <id> [--json]                       задача: поля, постановка, обсуждение, связи, вложения",
+    "  query <запрос> [--top N] [--ids] [--json]   выборка WIQL; можно только условие после WHERE",
     "  comment <id> <текст> --confirm          комментарий в обсуждение",
     "  time <id> <часы> [--set] --confirm      списать часы (по умолчанию прибавить)",
     "  link-pr <id> <url> [--title T] --confirm    ссылка на PR",
