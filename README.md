@@ -56,7 +56,6 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 | `/volna:journal [текст]` | дописать запись в журнал или показать журнал |
 | `/volna:checkpoint` | дописать журнал до восстановимого состояния — перед `/compact` |
 | `/volna:close [причина]` | закрытие в трекере: статусы, время, маршрут тестеру (по подтверждению) |
-| `/volna:next [id]` | извлечь опыт, снять активную задачу, предложить следующую и `/clear` |
 | `/volna:off [on]` | заглушить подсказки «Волны» до конца сессии или включить обратно |
 
 Флоу — 13 этапов: `intake` → `analyze` → `spec` → `plan` → `implement`×N → `advocate` →
@@ -89,7 +88,7 @@ skills/
   volna-journal/SKILL.md           формат журнала, чек-пойнт, извлечение опыта
   volna-journal/templates/journal.template.md
 commands/                          init, doctor, task, stage, status, checkpoint, journal,
-                                   skip, back, close, next, off, recall
+                                   skip, back, close, off, recall
 hooks/                             шапка сессии, гейт на commit/push, напоминание перед compact
 hooks/test-hooks.mjs               37 проверок hooks на синтетическом .volna
 lib/tfs-client.mjs                 клиент REST трекера (TFS / Azure DevOps Server)
@@ -149,7 +148,7 @@ docs/research/external-channel.md  разведка: вынос вопроса �
 
 | Ограничение | Следствие |
 |---|---|
-| **одна задача за раз** | вторая задача параллельно не ведётся; переключение — через `/volna:next` или ручную смену активной |
+| **одна задача за раз** | вторая задача параллельно не ведётся; переключение — через завершение задачи на `capture` или ручную смену активной |
 | **гейт ловит только `git` из сессии** | коммит из IDE, GUI-клиента или соседнего терминала не проверяется — защита процессная, а не техническая |
 | **один трекер** | `lib/tfs-client.mjs` написан под REST TFS / Azure DevOps Server; Jira, GitLab и прочее потребуют своего клиента |
 | **Windows-first** | `install.ps1` рассчитан на PowerShell 5.1; hooks и CLI на Node кроссплатформенны, но проверялись на Windows |

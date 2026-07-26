@@ -45,7 +45,7 @@ await runQuietly(async () => {
   }
 
   lines.push("Читай frontmatter и «Состояние»; секции лога - только по ссылке из резюме.");
-  lines.push("Продолжить с текущего этапа или закрыть задачу: /volna:status, /volna:next.");
+  lines.push("Продолжить с текущего этапа или закрыть задачу: /volna:status, /volna:close.");
   emitContext("SessionStart", lines);
 });
 

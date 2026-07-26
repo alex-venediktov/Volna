@@ -52,7 +52,7 @@ W4 — `docs/ONBOARDING.md`, `docs/COST.md` с замерами от 26.07, ра
 | `skills/volna-flow/stages/*.md` (13) | вход · что делать · DoD · что в журнал · типичные ошибки |
 | `skills/volna-journal/SKILL.md` | frontmatter как состояние, append-only секции, инвариант восстановления, чек-пойнт, формат записи знания |
 | `skills/volna-*/templates/*` (3) | журнал задачи, настройки проекта, указатель знаний |
-| `commands/*.md` (12) | init, doctor, task, stage, status, checkpoint, journal, skip, back, close, next, off |
+| `commands/*.md` (12) | init, doctor, task, stage, status, checkpoint, journal, skip, back, close, off, recall |
 
 **Влито по итогам прогона (PR #1):**
 

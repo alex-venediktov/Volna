@@ -36,7 +36,7 @@ description: Ведение одной задачи (bug / story / task из TFS
 | 10 | `commit` | required | `stages/commit.md` |
 | 11 | `push-pr` — задача-фикс в TFS, push, PR | required | `stages/push-pr.md` |
 | 12 | `close` — статусы в TFS, время, маршрут тестеру | required | `stages/close.md` |
-| 13 | `capture` — обобщить опыт в `.volna/knowledge/` | expected | `stages/capture.md` |
+| 13 | `capture` — обобщить опыт в `.volna/knowledge/` и завершить задачу | expected | `stages/capture.md` |
 
 **Читай `stages/<этап>.md` только для того этапа, который начинаешь.** Не загружай все —
 это прямой перерасход контекста.
@@ -86,8 +86,8 @@ description: Ведение одной задачи (bug / story / task из TFS
   на неё ссылается. Резюме противоречит логу — прав первый.
 - Уже известное по теме — `/volna:recall <тема>`: указатель знаний, записи, прошлые журналы.
 - Перед `/compact` — чек-пойнт (`/volna:checkpoint`), иначе журнал отстанет от реальности.
-- Задача закрыта → `/volna:next` предложит следующую и `/clear`. Перезапускать процесс
-  Claude Code не нужно — это дороже.
+- Задача закрыта → последний этап `capture` снимает активную задачу и предлагает начать
+  следующую с `/clear`. Перезапускать процесс Claude Code не нужно — это дороже.
 
 ## Статус правил проекта
 
