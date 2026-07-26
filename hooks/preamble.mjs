@@ -7,7 +7,7 @@
  * добавляется ссылка и три строки резюме. Только точное совпадение по номеру - никакого
  * поиска по смыслу: он стоил бы токенов на каждом сообщении.
  */
-import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, STAGES }
+import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, STAGES }
   from "./lib/volna-state.mjs";
 
 const MAX_LINES = 20;
@@ -34,6 +34,14 @@ await runQuietly(async () => {
     if (mins !== null && mins >= 30) {
       lines.push(`  журнал не дописан ${mins} мин - на этапе положена запись`);
     }
+
+    // Отставшее резюме опаснее его отсутствия: оно читается как актуальное.
+    const lag = summaryLag(active.text);
+    if (lag === "missing") {
+      lines.push("  в журнале нет секции «## Состояние» - после /compact придётся читать лог целиком");
+    } else if (lag) {
+      lines.push(`  «Состояние» отстало от лога (последняя запись ${lag}) - перепиши его`);
+    }
   }
 
   // Точный подъём референса по номеру из промпта (не активная задача, а упомянутая).
@@ -59,20 +67,26 @@ function mentionedTask(prompt, activeTask) {
   return matches.find((n) => n !== activeTask) ?? null;
 }
 
-/** Три строки резюме журнала: тип, этап, последняя запись. */
+/** Три строки резюме журнала: заголовок, этап, «сделано» из секции «Состояние». */
 function summarize(journal, limit) {
   const { fm } = journal;
   const out = [];
   if (fm.title) out.push(`заголовок: ${truncate(String(fm.title), 70)}`);
   const done = Array.isArray(fm.stages_done) ? fm.stages_done.length : 0;
   out.push(`тип ${fm.type || "?"}, этап ${fm.stage || "?"}, пройдено ${done}`);
-  const last = lastSectionLine(journal.text);
+  const last = summaryLine(journal.text);
   if (last) out.push(`последнее: ${truncate(last, 80)}`);
   return out.slice(0, limit);
 }
 
-/** Строка «сделано» или «что» из последней секции журнала. */
-function lastSectionLine(text) {
+/**
+ * Строка «сделано» из секции «Состояние»; её нет - откат на последнюю секцию лога.
+ * Резюме предпочтительнее хвоста лога: хвост может быть отменённой итерацией.
+ */
+function summaryLine(text) {
+  const summary = readSummary(text);
+  const fromSummary = summary && (summaryField(summary.body, "сделано") || summaryField(summary.body, "цель"));
+  if (fromSummary) return fromSummary;
   const idx = text.lastIndexOf("\n## ");
   const tail = idx < 0 ? text : text.slice(idx);
   const m = /\*\*(?:сделано|что)\:\*\*\s*(.+)/.exec(tail);

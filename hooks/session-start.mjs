@@ -3,7 +3,7 @@
  * SessionStart: если есть активная задача - напомнить, где остановились.
  * Нет задачи, нет .volna/, сопровождение заглушено - молчание (обычный чат не трогаем).
  */
-import { readHookInput, loadActive, runQuietly, emitContext, stagePosition, openItems, minutesSince, STAGES }
+import { readHookInput, loadActive, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, truncate, STAGES }
   from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
@@ -21,6 +21,11 @@ await runQuietly(async () => {
       `${fm.branch ? ` · ветка ${fm.branch}` : ""}`,
   ];
 
+  // Начало сессии - единственное место, где уместен следующий шаг из резюме целиком.
+  const summary = readSummary(active.text);
+  const next = summary && summaryField(summary.body, "следующий шаг");
+  if (next) lines.push(`Следующий шаг: ${truncate(next, 200)}`);
+
   const open = openItems(fm, 3);
   if (open.length) {
     lines.push(`Открыто (${open.length}):`);
@@ -32,6 +37,14 @@ await runQuietly(async () => {
     lines.push(`Журнал не обновлялся ${formatAge(mins)} - сверь, соответствует ли он реальности.`);
   }
 
+  const lag = summaryLag(active.text);
+  if (lag === "missing") {
+    lines.push("В журнале нет секции «## Состояние» - восстановление пойдёт по логу целиком, это дорого.");
+  } else if (lag) {
+    lines.push(`«Состояние» отстало от лога (последняя запись ${lag}) - сначала перепиши резюме.`);
+  }
+
+  lines.push("Читай frontmatter и «Состояние»; секции лога - только по ссылке из резюме.");
   lines.push("Продолжить с текущего этапа или закрыть задачу: /volna:status, /volna:next.");
   emitContext("SessionStart", lines);
 });

@@ -118,6 +118,44 @@ export function readJournal(volnaDir, taskId) {
   return { path, fm, sections, mtimeMs, text };
 }
 
+/**
+ * Секция «## Состояние · <дата>» - переписываемое резюме журнала. Возвращает {stamp, body}
+ * или null. Это то, с чего восстанавливается контекст; лог секций для hooks не нужен.
+ */
+export function readSummary(text) {
+  const m = /^##[ \t]+Состояние[ \t]*·?[ \t]*(.*)$/m.exec(String(text || ""));
+  if (!m) return null;
+  const rest = text.slice(m.index + m[0].length);
+  const next = rest.search(/^##[ \t]/m);
+  return { stamp: m[1].trim(), body: (next < 0 ? rest : rest.slice(0, next)).trim() };
+}
+
+/** Метка времени последней секции лога «## <этап> · итерация N · <дата>». */
+export function lastLogStamp(text) {
+  const all = [...String(text || "").matchAll(/^##[ \t]+(?!Состояние)\S.*·[ \t]*([\d-]+[ \t]+[\d:]+)/gm)];
+  return all.length ? all[all.length - 1][1].trim() : null;
+}
+
+/** Резюме отстало от лога: секции нет вовсе или её метка старше последней записи. */
+export function summaryLag(text) {
+  const summary = readSummary(text);
+  if (!summary) return "missing";
+  const last = lastLogStamp(text);
+  if (!last || !summary.stamp) return null;
+  return normStamp(summary.stamp) < normStamp(last) ? last : null;   // формат сортируем как строку
+}
+
+function normStamp(s) {
+  return String(s).replace(/[T\t ]+/g, " ").trim();
+}
+
+/** Значение подпункта «**имя:** ...» из тела секции; многострочное склеивается в строку. */
+export function summaryField(body, name) {
+  const re = new RegExp(`^\\*\\*${name}:\\*\\*[ \\t]*([\\s\\S]*?)(?=\\n\\*\\*|\\n##|$)`, "m");
+  const m = re.exec(String(body || ""));
+  return m ? m[1].replace(/\s+/g, " ").trim() : null;
+}
+
 /** Полное состояние: null, если задачи нет, каталога нет или сопровождение заглушено. */
 export function loadActive(cwd, { respectMute = true } = {}) {
   const volnaDir = findVolnaDir(cwd);

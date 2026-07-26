@@ -33,7 +33,13 @@ updated: 2026-07-25T12:30
 ---
 
 # 21571 — Клапан не рисуется при зеркале
+${extra.summary === null ? "" : `
+## Состояние · ${extra.summary ?? "2026-07-25 12:30"}
 
+**цель:** клапан должен рисоваться на зеркальном изделии.
+**сделано:** воспроизведено на позиции 3 заказа 100500.
+**следующий шаг:** снять радиус дуги с эталона и повторить расчёт.
+`}
 ## intake · итерация 1 · 2026-07-25 10:12
 **что:** принята задача 21571 (bug), создана ветка.
 **сделано:** журнал создан, ветка создана.
@@ -86,6 +92,29 @@ write("implement");
   const c = ctx(r);
   check("SessionStart: назвал задачу и этап", c.includes("21571") && c.includes("implement"), c);
   check("SessionStart: показал открытые пункты", c.includes("радиус дуги"), c);
+  check("SessionStart: следующий шаг из «Состояния»", c.includes("снять радиус дуги с эталона"), c);
+  check("SessionStart: резюме свежее - без предупреждения", !c.includes("отстало"), c);
+}
+
+// --- 2a. Секция «Состояние»: отсутствует и отстала от лога ---------------------
+{
+  const later = "\n## implement · итерация 2 · 2026-07-25 18:40\n**что:** правка\n**сделано:** собрано\n";
+
+  write("implement", { summary: null, sections: later });
+  const miss = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
+  check("нет «Состояния»: сказано прямо", miss.includes("нет секции"), miss);
+  const missHead = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("нет «Состояния»: шапка предупреждает", missHead.includes("Состояние"), missHead);
+
+  write("implement", { sections: later });                 // резюме 12:30 против записи 18:40
+  const lag = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("резюме отстало от лога: шапка предупреждает", lag.includes("отстало") && lag.includes("18:40"), lag);
+
+  write("implement", { summary: "2026-07-25 19:00", sections: later });
+  const fresh = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("резюме свежее лога: шапка молчит про отставание", !fresh.includes("отстало"), fresh);
+
+  write("implement");
 }
 
 // --- 3. Шапка UserPromptSubmit: бюджет и содержимое ----------------------------
@@ -110,6 +139,28 @@ write("implement");
     prompt: "посмотри заодно 99999" });
   const c2 = ctx(r2);
   check("чужой номер без журнала: ссылку не выдумал", !c2.includes("99999"), c2);
+
+  // Резюме чужого журнала берётся из «Состояния», а не из хвоста лога.
+  writeFileSync(join(volnaDir, "journal", "TASK-99123.md"), `---
+task: 99123
+title: "Прошлая задача"
+type: task
+stage: close
+stages_done: [intake, analyze]
+---
+
+## Состояние · 2026-07-20 10:00
+
+**сделано:** порт закрыт, тесты зелёные.
+
+## implement · итерация 4 · 2026-07-19 09:00
+**сделано:** отменённая гипотеза про масштаб.
+`, "utf8");
+  const r3 = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit",
+    prompt: "что было по 99123?" });
+  const c3 = ctx(r3);
+  check("чужой журнал: резюме из «Состояния», не из хвоста лога",
+    c3.includes("порт закрыт") && !c3.includes("отменённая гипотеза"), c3);
 }
 
 // --- 5. muted глушит шапку, но не гейт -----------------------------------------
@@ -176,7 +227,8 @@ write("implement");
   const r = run("precompact.mjs", { cwd: sandbox, hook_event_name: "PreCompact",
     compaction_trigger: "auto" });
   const c = ctx(r);
-  check("PreCompact: напомнил про журнал и инвариант", c.includes("21571") && c.includes("восстанавливается"), c);
+  check("PreCompact: напомнил про журнал и перезапись резюме",
+    c.includes("21571") && c.includes("Состояние") && c.includes("Две правки"), c);
 }
 
 // --- 10. Битый state.json и битый frontmatter не ломают hooks ------------------
