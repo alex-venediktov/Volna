@@ -101,9 +101,11 @@ install.ps1                        установка одной командо�
 docs/STATUS.md                     состояние работ, решения, что осталось
 docs/ONBOARDING.md                 первая задача нового человека за 10 минут
 docs/INSTALL.md                    способы установки и что заполнить после
+docs/REMOTE.md                     отвечать на вопросы агента с телефона и что уходит наружу
 docs/COST.md                       измеренная стоимость: токены, время hooks
 docs/PROJECT-SKILLS.md             граница с проектными скиллами рабочего репозитория
 docs/reference/tfs-rest.md         подвохи REST API трекера
+docs/research/external-channel.md  разведка: вынос вопроса агента в telegram и на телефон
 ```
 
 ## Что где хранится
