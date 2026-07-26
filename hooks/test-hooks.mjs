@@ -114,6 +114,17 @@ write("implement");
   const fresh = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
   check("резюме свежее лога: шапка молчит про отставание", !fresh.includes("отстало"), fresh);
 
+  // Журнал старого формата: заголовок «## Состояние задачи на <дата>» - не резюме.
+  write("implement", { summary: null,
+    sections: `${later}\n## Состояние задачи на 2026-07-25 12:00\n**сделано:** старое резюме\n` });
+  const legacy = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("старый заголовок резюме не считается «Состоянием»", legacy.includes("нет секции"), legacy);
+
+  // Метка не читается как дата - свежесть недоказуема, просим перезаписать.
+  write("implement", { summary: "без даты", sections: later });
+  const nostamp = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("«Состояние» без даты: шапка требует перезаписи", nostamp.includes("отстало"), nostamp);
+
   write("implement");
 }
 

@@ -11,9 +11,9 @@
 | Волна | Содержание | Статус |
 |---|---|---|
 | **W1** | флоу и журнал: скиллы, детали 13 этапов, шаблоны, команды | **проверено на живой задаче**, замечания влиты |
-| **W2** | hooks: шапка сессии, гейт на commit/push, PreCompact | **проверено в живой работе**, 34 проверки проходят |
+| **W2** | hooks: шапка сессии, гейт на commit/push, PreCompact | **проверено в живой работе**, 36 проверок проходят |
 | **W3** | интеграции: CLI над трекером, `/volna:recall` | **проверено в живой работе**, 52 проверки проходят |
-| **W4** | onboarding для команды, документ по стоимости, ограничения | **закрыто**, версия закреплена тегом `v0.1.7` |
+| **W4** | onboarding для команды, документ по стоимости, ограничения | **закрыто**, версия закреплена тегом `v0.1.8` |
 
 Новому человеку: [`docs/ONBOARDING.md`](docs/ONBOARDING.md) — первая задача за 10 минут.
 Во что это обходится по токенам и времени — [`docs/COST.md`](docs/COST.md).
@@ -91,7 +91,7 @@ skills/
 commands/                          init, doctor, task, stage, status, checkpoint, journal,
                                    skip, back, close, next, off, recall
 hooks/                             шапка сессии, гейт на commit/push, напоминание перед compact
-hooks/test-hooks.mjs               34 проверки hooks на синтетическом .volna
+hooks/test-hooks.mjs               36 проверок hooks на синтетическом .volna
 lib/tfs-client.mjs                 клиент REST трекера (TFS / Azure DevOps Server)
 lib/env.mjs                        чтение .env без зависимостей
 bin/volna-tfs.mjs                  CLI над трекером: get/query/comment/time/link-pr/attach/state

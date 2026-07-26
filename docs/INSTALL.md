@@ -115,7 +115,7 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 { "hooks": { "UserPromptSubmit": [] } }
 ```
 
-Проверить hooks без живой сессии: `node hooks/test-hooks.mjs .` из корня «Волны» — 34 проверки
+Проверить hooks без живой сессии: `node hooks/test-hooks.mjs .` из корня «Волны» — 36 проверок
 на синтетическом `.volna`, включая поведение при битом `state.json` и удалённом каталоге.
 
 ## CLI над трекером

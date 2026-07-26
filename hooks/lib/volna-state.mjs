@@ -123,7 +123,9 @@ export function readJournal(volnaDir, taskId) {
  * или null. Это то, с чего восстанавливается контекст; лог секций для hooks не нужен.
  */
 export function readSummary(text) {
-  const m = /^##[ \t]+Состояние[ \t]*·?[ \t]*(.*)$/m.exec(String(text || ""));
+  // Разделитель «·» обязателен: иначе под резюме попадают заголовки вида
+  // «## Состояние задачи на <дата>» из журналов, которые велись до этого формата.
+  const m = /^##[ \t]+Состояние[ \t]*·[ \t]*(.*)$/m.exec(String(text || ""));
   if (!m) return null;
   const rest = text.slice(m.index + m[0].length);
   const next = rest.search(/^##[ \t]/m);
@@ -141,7 +143,9 @@ export function summaryLag(text) {
   const summary = readSummary(text);
   if (!summary) return "missing";
   const last = lastLogStamp(text);
-  if (!last || !summary.stamp) return null;
+  if (!last) return null;
+  // Метка не читается как дата - свежесть недоказуема, поэтому просим перезаписать.
+  if (!/^\d{4}-\d{2}-\d{2}[ T\t]+\d{1,2}:\d{2}/.test(summary.stamp)) return last;
   return normStamp(summary.stamp) < normStamp(last) ? last : null;   // формат сортируем как строку
 }
 
