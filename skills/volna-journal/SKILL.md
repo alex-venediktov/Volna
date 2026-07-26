@@ -44,7 +44,8 @@ updated: 2026-07-25T12:30
 ---
 ```
 
-`stage`, `stages_done`, `open` обновляются **на каждом этапе** — их читает hook шапки (W2).
+`stage`, `stages_done`, `open` обновляются **на каждом этапе** — их читает hook шапки
+(`hooks/preamble.mjs`) и гейт на commit.
 
 ## Секции: append-only
 
