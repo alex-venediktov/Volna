@@ -6,6 +6,8 @@
  */
 import { run, parseArgs } from "./volna-tfs.mjs";
 import { parseEnv } from "../lib/env.mjs";
+import { TfsClient, normalizeRefName, parsePullRequestUrl, pullRequestArtifactUrl, pullRequestIds }
+  from "../lib/tfs-client.mjs";
 
 let failures = 0;
 function check(name, cond, detail = "") {
@@ -36,6 +38,32 @@ function fakeClient(workItem = {}, found = [], items = {}) {
     async addAttachment(id, name, bytes, opts) {
       calls.push(["addAttachment", id, name, bytes.length, opts]);
       return { id, url: "http://tracker/att/1" };
+    },
+    async createPullRequest(repo, opts) {
+      calls.push(["createPullRequest", repo, opts]);
+      return {
+        id: 77, title: opts.title, status: "active", mergeStatus: "succeeded",
+        source: `refs/heads/${String(opts.source).replace(/^refs\/heads\//, "")}`,
+        target: `refs/heads/${String(opts.target).replace(/^refs\/heads\//, "")}`,
+        repositoryId: "guid", repositoryName: repo,
+        webUrl: `http://tracker/Проект/_git/${repo}/pullrequest/77`,
+      };
+    },
+    async getPullRequest(repo, prId) {
+      calls.push(["getPullRequest", repo, prId]);
+      return {
+        id: Number(prId), title: "Заголовок PR", status: "active", mergeStatus: "succeeded",
+        source: "refs/heads/feature/1234_суть", target: "refs/heads/main",
+        repositoryId: "guid", repositoryName: repo, webUrl: "",
+      };
+    },
+    async getPullRequestCommits(repo, prId) {
+      calls.push(["getPullRequestCommits", repo, prId]);
+      return [{ id: "aaaaaaaa", comment: "1234: своя правка" }, { id: "bbbbbbbb", comment: "1200: чужая правка" }];
+    },
+    async linkPullRequestArtifact(id, repo, prId, name) {
+      calls.push(["linkPullRequestArtifact", id, repo, prId, name]);
+      return { url: `vstfs:///Git/PullRequestId/p%2Fr%2F${prId}`, repositoryId: "guid" };
     },
   };
 }
@@ -87,6 +115,80 @@ const capture = () => {
   check(".env: пустое значение", e.EMPTY === "", JSON.stringify(e.EMPTY));
 }
 
+// --- имена веток, адреса PR и связи ------------------------------------------
+{
+  check("ветка: короткое имя дополняется до refs/heads",
+    normalizeRefName("feature/2001_суть") === "refs/heads/feature/2001_суть", normalizeRefName("feature/x"));
+  check("ветка: полное имя не удваивается",
+    normalizeRefName("refs/heads/main") === "refs/heads/main", normalizeRefName("refs/heads/main"));
+
+  const art = pullRequestArtifactUrl("p-guid", "r-guid", 101);
+  check("artifact-адрес: разделители именно %2F",
+    art === "vstfs:///Git/PullRequestId/p-guid%2Fr-guid%2F101", art);
+
+  const web = parsePullRequestUrl("http://host/tfs/Coll/backend/_git/frontend/pullrequest/103");
+  check("веб-ссылка: репозиторий и номер разобраны",
+    web?.repository === "frontend" && web?.id === 103, JSON.stringify(web));
+  check("веб-ссылка: посторонний URL не выдаёт себя за PR",
+    parsePullRequestUrl("http://host/tfs/Coll/_workitems/edit/2001") === null, "разобрался зря");
+
+  const withPr = { relations: [
+    { rel: "ArtifactLink", url: "vstfs:///Git/PullRequestId/p%2Fr%2F101" },
+    { rel: "Hyperlink", url: "http://host/tfs/Coll/backend/_git/backend/pullrequest/102" },
+    { rel: "AttachedFile", url: "http://host/att/1" },
+  ] };
+  check("связи задачи: номера PR собраны из artifact-ссылок и гиперссылок",
+    JSON.stringify(pullRequestIds(withPr)) === "[101,102]", JSON.stringify(pullRequestIds(withPr)));
+}
+
+// --- клиент: git-запросы без сети ---------------------------------------------
+{
+  const seen = [];
+  const fetchFn = async (url, init) => {
+    seen.push({ url, method: init.method, body: init.body, contentType: init["headers"]?.["Content-Type"] });
+    const body = /pullrequests/i.test(url) ? {
+      pullRequestId: 101, title: "2001: суть", status: "active", mergeStatus: "succeeded",
+      sourceRefName: "refs/heads/feature/2001_суть", targetRefName: "refs/heads/main",
+      repository: { name: "backend" },
+    }
+      : /_apis\/git\/repositories/i.test(url) ? { value: [{ id: "repo-guid", name: "backend" }] }
+      : /_apis\/projects\//i.test(url) ? { id: "project-guid" }
+      : { id: 2001 };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  const client = new TfsClient({
+    baseUrl: "http://host/tfs/Coll", project: "backend", pat: "секрет", fetchFn,
+  });
+
+  const pr = await client.createPullRequest("backend", {
+    source: "feature/2001_суть", target: "main", title: "2001: суть", description: "Порт, строки 15832.",
+  });
+  const created = seen.find((s) => /pullrequests/i.test(s.url) && s.method === "POST");
+  const sent = JSON.parse(Buffer.from(created.body).toString("utf8"));
+  check("клиент: имя репозитория превращено в id в адресе запроса",
+    /repositories\/repo-guid\/pullrequests/.test(created.url), created.url);
+  check("клиент: ветки в теле нормализованы",
+    sent.sourceRefName === "refs/heads/feature/2001_суть" && sent.targetRefName === "refs/heads/main",
+    JSON.stringify(sent));
+  check("клиент: тело ушло UTF8-байтами и кириллица цела",
+    created.body instanceof Uint8Array && sent.description === "Порт, строки 15832.",
+    typeof created.body);
+  check("клиент: номер PR и веб-ссылка собраны",
+    pr.id === 101 && pr.webUrl === "http://host/tfs/Coll/backend/_git/backend/pullrequest/101", JSON.stringify(pr));
+
+  const link = await client.linkPullRequestArtifact(2001, "backend", 101);
+  const patched = seen.find((s) => s.method === "PATCH");
+  const ops = JSON.parse(Buffer.from(patched.body).toString("utf8"));
+  check("клиент: связь ставится как ArtifactLink с vstfs-адресом",
+    ops[0].value.rel === "ArtifactLink" &&
+    ops[0].value.url === "vstfs:///Git/PullRequestId/project-guid%2Frepo-guid%2F101" &&
+    ops[0].value.attributes.name === "Pull Request", JSON.stringify(ops));
+  check("клиент: адрес связи возвращается вызывающему", link.url === ops[0].value.url, link.url);
+
+  const repoCalls = seen.filter((s) => /_apis\/git\/repositories\?/.test(s.url)).length;
+  check("клиент: список репозиториев спрашивается один раз", repoCalls === 1, String(repoCalls));
+}
+
 // --- запись без --confirm НЕ выполняется -------------------------------------
 {
   const cases = [
@@ -95,6 +197,7 @@ const capture = () => {
     ["link-pr", "2001", "http://pr/1"],
     ["state", "2001", "Resolved"],
     ["attach", "2001", "shot.png"],
+    ["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть", "--target", "main"],
   ];
   for (const argv of cases) {
     const c = capture();
@@ -222,16 +325,104 @@ const FOUND_FIELDS = {
     !client2.calls.some(([m]) => m === "getWorkItem"), JSON.stringify(client2.calls));
 }
 
+// --- pr create ---------------------------------------------------------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть правки",
+    "--target", "main", "--work-item", "2001", "--confirm"], { client, log: c.log, err: c.err });
+  const [, repo, opts] = client.calls.find(([m]) => m === "createPullRequest") ?? [];
+  const link = client.calls.find(([m]) => m === "linkPullRequestArtifact");
+  const t = c.text();
+  check("pr create: код 0", code === 0, String(code));
+  check("pr create: репозиторий, ветки и заголовок переданы",
+    repo === "backend" && opts?.source === "feature/2001_суть" && opts?.target === "main" &&
+    opts?.title === "2001: суть правки", JSON.stringify([repo, opts]));
+  check("pr create: номер PR и состояние слияния показаны",
+    t.includes("PR 77 создан") && t.includes("слияние succeeded"), t);
+  check("pr create: --work-item ставит нативную связь",
+    link?.[1] === "2001" && link?.[3] === 77 && link?.[4] === "Pull Request", JSON.stringify(link));
+  check("pr create: про пустое описание предупредил", /Описание пустое/.test(t), t);
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть",
+    "--body-file", "D:/tmp/описание.md", "--confirm"],
+    { client, log: c.log, err: c.err, env: { TFS_TARGET_BRANCH: "main" },
+      readFile: () => Buffer.from("Порт по эталону, строки 15832-16246.", "utf8") });
+  const [, , opts] = client.calls.find(([m]) => m === "createPullRequest") ?? [];
+  const t = c.text();
+  check("pr create: целевая ветка берётся из TFS_TARGET_BRANCH", opts?.target === "main", JSON.stringify(opts));
+  check("pr create: описание читается файлом как UTF8",
+    opts?.description === "Порт по эталону, строки 15832-16246.", JSON.stringify(opts?.description));
+  check("pr create: без --work-item подсказана команда привязки",
+    /link-pr 2001 backend 77|link-pr <id> backend 77/.test(t), t);
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть", "--confirm"],
+    { client, log: c.log, err: c.err, env: {} });
+  check("pr create: без целевой ветки ничего не создаётся",
+    code === 1 && client.calls.length === 0 && /TFS_TARGET_BRANCH/.test(c.errText()), c.errText());
+
+  const c2 = capture();
+  const client2 = fakeClient(WI);
+  const code2 = await run(["pr", "create", "backend", "feature/2001_суть", "--target", "main", "--confirm"],
+    { client: client2, log: c2.log, err: c2.err, env: {} });
+  check("pr create: без заголовка ничего не создаётся",
+    code2 === 1 && client2.calls.length === 0 && /заголовок/.test(c2.errText()), c2.errText());
+
+  const c3 = capture();
+  const client3 = fakeClient(WI);
+  const code3 = await run(["pr", "чепуха", "backend"], { client: client3, log: c3.log, err: c3.err });
+  check("pr: неизвестная подкоманда - код 1 и подсказка",
+    code3 === 1 && client3.calls.length === 0 && /pr create/.test(c3.errText()), c3.errText());
+}
+
+// --- pr status ---------------------------------------------------------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["pr", "status", "backend", "77"], { client, log: c.log, err: c.err });
+  const t = c.text();
+  check("pr status: чтение работает без --confirm", code === 0 && t.includes("# PR 77"), t);
+  check("pr status: слияние и ветки показаны",
+    t.includes("слияние: succeeded") && t.includes("refs/heads/main"), t);
+  check("pr status: при нескольких коммитах предупредил про чужие изменения",
+    t.includes("Коммиты (2)") && /не тащит ли ветка чужие/.test(t), t);
+}
+
 // --- link-pr и state ---------------------------------------------------------
 {
   const c = capture();
   const client = fakeClient(WI);
+  await run(["link-pr", "2001", "backend", "77", "--confirm"], { client, log: c.log, err: c.err });
+  const link = client.calls.find(([m]) => m === "linkPullRequestArtifact");
+  check("link-pr: форма «репозиторий номер» даёт нативную связь",
+    link?.[1] === "2001" && link?.[2] === "backend" && link?.[3] === "77", JSON.stringify(client.calls));
+
+  const cWeb = capture();
+  const clientWeb = fakeClient(WI);
+  await run(["link-pr", "2001", "http://tracker/Проект/_git/frontend/pullrequest/103", "--confirm"],
+    { client: clientWeb, log: cWeb.log, err: cWeb.err });
+  const linkWeb = clientWeb.calls.find(([m]) => m === "linkPullRequestArtifact");
+  check("link-pr: репозиторий и номер разобраны из веб-ссылки",
+    linkWeb?.[2] === "frontend" && linkWeb?.[3] === 103, JSON.stringify(clientWeb.calls));
+
+  const cOld = capture();
+  const clientOld = fakeClient(WI);
   await run(["link-pr", "2001", "http://tracker/pr/11", "--title", "PR 11", "--confirm"],
-    { client, log: c.log, err: c.err });
-  const ops = client.calls.find(([m]) => m === "updateWorkItem")?.[2] ?? [];
+    { client: clientOld, log: cOld.log, err: cOld.err });
+  const ops = clientOld.calls.find(([m]) => m === "updateWorkItem")?.[2] ?? [];
   const rel = ops[0]?.value ?? {};
-  check("link-pr: гиперссылка с подписью", rel.rel === "Hyperlink" && rel.attributes?.comment === "PR 11",
-    JSON.stringify(ops));
+  check("link-pr: неопознанный URL остаётся гиперссылкой с подписью",
+    rel.rel === "Hyperlink" && rel.attributes?.comment === "PR 11", JSON.stringify(ops));
+  check("link-pr: про отсутствие нативной связи сказано",
+    /не нативная связь/.test(cOld.text()), cOld.text());
 
   const c2 = capture();
   const client2 = fakeClient(WI);

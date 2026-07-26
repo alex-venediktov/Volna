@@ -13,7 +13,9 @@
  *   volna-tfs query <запрос>               выборка WIQL: id, тип, состояние, заголовок
  *   volna-tfs comment <id> <текст>         комментарий в обсуждение (markdown -> HTML)
  *   volna-tfs time <id> <часы> [--set]     затраченное время: прибавить или заменить
- *   volna-tfs link-pr <id> <url> [--title] ссылка на PR
+ *   volna-tfs pr create <репо> <ветка>     создать pull request (заголовок и описание флагами)
+ *   volna-tfs pr status <репо> <номер>     состояние PR: слияние, коммиты, связанные задачи
+ *   volna-tfs link-pr <id> <репо> <номер>  связь задача-PR (или прежняя форма: <id> <url>)
  *   volna-tfs attach <id> <файл> [--discussion] [--comment <текст>]
  *   volna-tfs state <id> <состояние> [--assign <кому>] [--reason <причина>]
  *
@@ -22,11 +24,17 @@
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { TfsClient, tfsConfigFromEnv, summarize, pullRequestLinks, markdownToTfsHtml, htmlToMarkdown }
-  from "../lib/tfs-client.mjs";
+import { TfsClient, tfsConfigFromEnv, summarize, pullRequestIds, parsePullRequestUrl,
+  markdownToTfsHtml, htmlToMarkdown } from "../lib/tfs-client.mjs";
 import { loadEnv } from "../lib/env.mjs";
 
 const WRITE_COMMANDS = new Set(["comment", "time", "link-pr", "attach", "state"]);
+
+/** Пишет ли команда в трекер: у составной `pr` пишет только `create`, статус свободен. */
+function isWriteCommand(command, args) {
+  if (command === "pr") return args[0] === "create";
+  return WRITE_COMMANDS.has(command);
+}
 
 /** Разобрать argv в команду, позиционные аргументы и флаги. */
 export function parseArgs(argv) {
@@ -36,8 +44,9 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
     const name = a.slice(2);
-    // флаги со значением: --comment "текст", --assign "кто"
-    if (["comment", "assign", "reason", "title", "top"].includes(name)) {
+    // флаги со значением: --comment "текст", --assign "кто", --target DEV, --body-file путь
+    if (["comment", "assign", "reason", "title", "top", "target", "body", "body-file",
+      "work-item", "name"].includes(name)) {
       flags[name] = argv[++i] ?? "";
     } else {
       flags[name] = true;
@@ -63,7 +72,7 @@ export async function run(argv, deps = {}) {
     return command ? 0 : 1;
   }
 
-  if (WRITE_COMMANDS.has(command) && !flags.confirm) {
+  if (isWriteCommand(command, args) && !flags.confirm) {
     err(describeIntent(command, args, flags));
     err("Запись в трекер не выполнена: нет флага --confirm. Его ставит человек, а не агент.");
     return 1;
@@ -89,6 +98,7 @@ export async function run(argv, deps = {}) {
       case "query": return await cmdQuery(client, args, flags, log, err);
       case "comment": return await cmdComment(client, args, log, err);
       case "time": return await cmdTime(client, args, flags, log, err);
+      case "pr": return await cmdPr(client, args, flags, log, err, readFile, env);
       case "link-pr": return await cmdLinkPr(client, args, flags, log, err);
       case "attach": return await cmdAttach(client, args, flags, log, err, readFile);
       case "state": return await cmdState(client, args, flags, log, err);
@@ -133,8 +143,8 @@ async function cmdGet(client, args, flags, log, err) {
   if (s.parent) out.push(`родитель: ${s.parent} (постановка часто там)`);
   if (s.children.length) out.push(`дочерние: ${s.children.join(", ")}`);
 
-  const prs = pullRequestLinks(wi);
-  if (prs.length) out.push(`связанные PR: ${prs.length}`);
+  const prs = pullRequestIds(wi);
+  if (prs.length) out.push(`связанные PR: ${prs.join(", ")}`);
 
   const attachments = (wi.relations ?? []).filter((r) => r.rel === "AttachedFile");
   if (attachments.length) {
@@ -235,18 +245,121 @@ async function cmdTime(client, args, flags, log, err) {
   return 0;
 }
 
+/** Составная команда pr: create пишет (нужен --confirm), status только читает. */
+async function cmdPr(client, args, flags, log, err, readFile, env) {
+  switch (args[0]) {
+    case "create": return await cmdPrCreate(client, args.slice(1), flags, log, err, readFile, env);
+    case "status": return await cmdPrStatus(client, args.slice(1), flags, log, err);
+    default:
+      err("Нужна подкоманда: volna-tfs pr create <репо> <ветка> | volna-tfs pr status <репо> <номер>");
+      return 1;
+  }
+}
+
+/**
+ * Создать pull request. Заголовок - флагом, описание - файлом (--body-file): длинный текст с
+ * кириллицей в аргументах командной строки бьётся, файл читается как UTF8 и уходит байтами.
+ * С --work-item сразу ставится нативная связь задача-PR.
+ */
+async function cmdPrCreate(client, args, flags, log, err, readFile, env) {
+  const repo = args[0];
+  const source = args[1];
+  if (!repo || !source) {
+    err("Нужны репозиторий и ветка: volna-tfs pr create <репо> <ветка> --title <заголовок> --confirm");
+    return 1;
+  }
+  const title = String(flags.title ?? "").trim();
+  if (!title) { err("Нужен заголовок: --title «<номер задачи>: суть правки»"); return 1; }
+
+  const target = String(flags.target ?? env?.TFS_TARGET_BRANCH ?? "").trim();
+  if (!target) {
+    err("Не задана целевая ветка: укажи --target <ветка> или заполни TFS_TARGET_BRANCH в .env");
+    return 1;
+  }
+
+  let description = String(flags.body ?? "");
+  if (flags["body-file"]) {
+    try {
+      description = Buffer.from(readFile(flags["body-file"])).toString("utf8");
+    } catch (e) {
+      err(`Не прочитать файл описания ${flags["body-file"]}: ${e.message}`);
+      return 1;
+    }
+  }
+
+  const pr = await client.createPullRequest(repo, { source, target, title, description });
+  log(`PR ${pr.id} создан: ${pr.title}`);
+  log(`ветка ${pr.source} -> ${pr.target}, состояние ${pr.status}, слияние ${pr.mergeStatus}` +
+    `${pr.mergeStatus === "conflicts" ? " - есть конфликты, слить не получится" : ""}`);
+  if (pr.webUrl) log(pr.webUrl);
+  if (!description) log("Описание пустое: ревьюер не увидит ни сути правки, ни ссылок на эталон.");
+
+  const workItem = flags["work-item"];
+  if (workItem) {
+    await client.linkPullRequestArtifact(workItem, repo, pr.id, flags.name || "Pull Request");
+    log(`Задача ${workItem}: PR ${pr.id} привязан связью Pull Request.`);
+  } else {
+    log(`Задача не привязана: volna-tfs link-pr <id> ${repo} ${pr.id} --confirm`);
+  }
+  return 0;
+}
+
+/** Состояние PR: слияние, коммиты и привязанные задачи - чтение, подтверждения не требует. */
+async function cmdPrStatus(client, args, flags, log, err) {
+  const repo = args[0];
+  const prId = args[1];
+  if (!repo || !prId) { err("Нужны репозиторий и номер: volna-tfs pr status <репо> <номер>"); return 1; }
+
+  const pr = await client.getPullRequest(repo, prId);
+  if (flags.json) { log(JSON.stringify(pr, null, 2)); return 0; }
+
+  const commits = await client.getPullRequestCommits(repo, prId);
+  const out = [`# PR ${pr.id} ${pr.title}`, ""];
+  out.push(`репозиторий: ${pr.repositoryName || repo} · состояние: ${pr.status} · слияние: ${pr.mergeStatus}`);
+  out.push(`${pr.source} -> ${pr.target}`);
+  if (pr.webUrl) out.push(pr.webUrl);
+  if (commits.length) {
+    out.push("", `## Коммиты (${commits.length})`);
+    for (const c of commits) out.push(`- ${c.id} ${c.comment}`);
+    if (commits.length > 1) {
+      out.push("", "Коммитов больше одного: проверь, не тащит ли ветка чужие изменения - тогда",
+        "порядок слияния важен.");
+    }
+  }
+  log(out.join("\n"));
+  return 0;
+}
+
+/**
+ * Связь задача-PR. Нативная связь (rel=ArtifactLink) ставится, когда известны репозиторий и
+ * номер: форма `<id> <репо> <номер>` или веб-ссылка `.../_git/<репо>/pullrequest/<номер>`.
+ * Прежняя форма с произвольным URL остаётся гиперссылкой: собрать vstfs-адрес из неё нельзя.
+ */
 async function cmdLinkPr(client, args, flags, log, err) {
   const id = args[0];
-  const url = args[1];
-  if (!id || !url) { err("Нужны id и URL: volna-tfs link-pr <id> <url> --confirm"); return 1; }
-  // Гиперссылка, а не ArtifactLink: artifact-ссылку на PR не собрать из URL без id проекта и
-  // репозитория, а гиперссылка работает всегда и видна в задаче так же.
+  if (!id || !args[1]) {
+    err("Нужны id и PR: volna-tfs link-pr <id> <репо> <номер> --confirm (или <id> <url>)");
+    return 1;
+  }
+  const name = flags.title || flags.name || "Pull Request";
+  const web = parsePullRequestUrl(args[1]);
+  const repo = args[2] ? args[1] : web?.repository;
+  const prId = args[2] ?? web?.id;
+
+  if (repo && prId) {
+    const res = await client.linkPullRequestArtifact(id, repo, prId, name);
+    log(`Задача ${id}: PR ${prId} привязан связью Pull Request.`);
+    log(res.url);
+    return 0;
+  }
+
   await client.updateWorkItem(id, [{
     op: "add",
     path: "/relations/-",
-    value: { rel: "Hyperlink", url, attributes: { comment: flags.title || "Pull Request" } },
+    value: { rel: "Hyperlink", url: args[1], attributes: { comment: name } },
   }]);
-  log(`Задача ${id}: ссылка на PR добавлена.`);
+  log(`Задача ${id}: добавлена гиперссылка ${args[1]}.`);
+  log("Это не нативная связь задача-PR: для неё нужны репозиторий и номер PR.");
   return 0;
 }
 
@@ -292,7 +405,10 @@ function describeIntent(command, args, flags) {
   switch (command) {
     case "comment": return `Собирался добавить комментарий к задаче ${id}: «${args.slice(1).join(" ")}».`;
     case "time": return `Собирался ${flags.set ? "заменить" : "прибавить"} часы задачи ${id}: ${args[1]}.`;
-    case "link-pr": return `Собирался привязать к задаче ${id} ссылку ${args[1]}.`;
+    case "pr": return `Собирался создать PR в репозитории ${args[1] ?? "<репо>"}: ветка ` +
+      `${args[2] ?? "<ветка>"} -> ${flags.target ?? "<целевая ветка>"}, заголовок ` +
+      `«${flags.title ?? ""}»${flags["work-item"] ? `, привязка к задаче ${flags["work-item"]}` : ""}.`;
+    case "link-pr": return `Собирался привязать к задаче ${id} PR ${args.slice(1).join(" ")}.`;
     case "attach": return `Собирался приложить к задаче ${id} файл ${args[1]}.`;
     case "state": return `Собирался сменить состояние задачи ${id} на «${args[1]}»` +
       `${flags.assign ? ` и назначить ${flags.assign}` : ""}.`;
@@ -309,11 +425,15 @@ function usage() {
     "  query <запрос> [--top N] [--ids] [--json]   выборка WIQL; можно только условие после WHERE",
     "  comment <id> <текст> --confirm          комментарий в обсуждение",
     "  time <id> <часы> [--set] --confirm      списать часы (по умолчанию прибавить)",
-    "  link-pr <id> <url> [--title T] --confirm    ссылка на PR",
+    "  pr create <репо> <ветка> --title T [--target ветка] [--body-file файл]",
+    "            [--work-item id] --confirm   создать pull request",
+    "  pr status <репо> <номер> [--json]       состояние PR: слияние, коммиты",
+    "  link-pr <id> <репо> <номер> --confirm   нативная связь задача-PR (или <id> <url>)",
     "  attach <id> <файл> [--discussion] [--comment T] --confirm",
     "  state <id> <состояние> [--assign кто] [--reason почему] --confirm",
     "",
-    "Адреса и путь к файлу PAT - в .env рабочего репозитория (шаблон .env.example).",
+    "Адреса, целевая ветка PR (TFS_TARGET_BRANCH) и путь к файлу PAT - в .env рабочего",
+    "репозитория (шаблон .env.example).",
   ].join("\n");
 }
 

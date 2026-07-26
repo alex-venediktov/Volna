@@ -17,7 +17,7 @@
 | PAT | из файла (`TFS_PAT_FILE`), кодировка **utf-8-sig** → срезать BOM и края. В переменной окружения секрет не держим |
 | project-scoped | `wiql`, создание work item, загрузка вложений требуют префикс проекта: `${TFS_BASE_URL}/${TFS_PROJECT}/_apis/...` |
 
-## Три подвоха, которые стоят часа отладки
+## Четыре подвоха, которые стоят часа отладки
 
 1. **Тело запроса — UTF8-байтами.** Строка вместо байтов → кириллица бьётся, сервер отвечает
    **TF401319**. Ошибка выглядит как проблема прав или правил поля, но это клиентская
@@ -29,6 +29,34 @@
    `Microsoft.VSTS.TCM.ReproSteps`, `System.History` рендерятся как HTML: Markdown в них видно
    как текст. Писать через `markdownToTfsHtml()`, спецсимволы экранировать. Однострочные поля
    (заголовок, эстимация, назначение) — простым текстом, без HTML.
+4. **Связь задача-PR — `ArtifactLink`, а не гиперссылка.** Гиперссылка видна в задаче, но
+   нативной трассировки не даёт. Адрес собирается из **id** проекта и репозитория, которых в
+   веб-ссылке на PR нет:
+   `vstfs:///Git/PullRequestId/{projectId}%2F{repositoryId}%2F{pullRequestId}` — разделители
+   именно `%2F`, с косыми чертами сервер связь не примет.
+
+## Pull request (`_apis/git`)
+
+| Операция | Метод и путь |
+|---|---|
+| id проекта | `GET /_apis/projects/{имя}` → `id` (для artifact-ссылки) |
+| репозитории проекта | `GET /{project}/_apis/git/repositories` → `[{id, name}]` |
+| создать PR | `POST /_apis/git/repositories/{repoId}/pullrequests`, тело `{sourceRefName, targetRefName, title, description}` |
+| состояние PR | `GET /_apis/git/repositories/{repoId}/pullrequests/{id}` |
+| коммиты PR | `GET /_apis/git/repositories/{repoId}/pullrequests/{id}/commits` |
+| связь с задачей | `PATCH /_apis/wit/workitems/{id}`, связь `ArtifactLink` с vstfs-адресом выше |
+
+Тонкости:
+
+- **ветки — полными именами ссылок**: `refs/heads/<ветка>`, короткое имя сервер не примет
+  (`normalizeRefName()` дополняет);
+- **репозиторий в пути — только id**, имя не подставляется: сперва `resolveRepositoryId()`;
+- `mergeStatus` в ответе: `succeeded` — сливается, `conflicts` — конфликты. Смотреть **до**
+  того, как обещать человеку, что PR готов;
+- **число коммитов в PR** показывает, не тащит ли ветка чужие изменения: ветка, отведённая от
+  другой feature-ветки, несёт её коммиты, и тогда важен порядок слияния;
+- веб-ссылки на PR в ответе нет, она собирается сама:
+  `{base}/{project}/_git/{repoName}/pullrequest/{id}`.
 
 ## Эндпоинты
 
