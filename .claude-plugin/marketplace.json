@@ -1,7 +1,7 @@
 {
   "name": "volna",
   "description": "Маркетплейс «Волны»: сопровождение задачи в одной сессии Claude Code",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "owner": {
     "name": "Alexey Venediktov"
   },
@@ -10,7 +10,7 @@
       "name": "volna",
       "source": "./",
       "description": "Мягкий флоу этапов задачи, журнал работ и накопление опыта в одном контексте Claude Code",
-      "version": "0.1.8"
+      "version": "0.1.9"
     },
     {
       "name": "volna-craft",
