@@ -81,7 +81,7 @@ const decision = (r) => {
 {
   const empty = join(sandbox, "no-volna");
   mkdirSync(empty, { recursive: true });
-  for (const hook of ["session-start.mjs", "preamble.mjs", "gate.mjs", "precompact.mjs"]) {
+  for (const hook of ["session-start.mjs", "preamble.mjs", "gate.mjs"]) {
     const r = run(hook, { cwd: empty, hook_event_name: "X", tool_name: "Bash",
       tool_input: { command: "git commit -m x" } });
     check(`без .volna ${hook}: код 0 и пустой вывод`, r.code === 0 && r.out === "",
@@ -240,16 +240,7 @@ stages_done: [intake, analyze]
   check("гейт молчит на не-Bash инструменте", r.out === "", r.out);
 }
 
-// --- 9. PreCompact напоминает про журнал --------------------------------------
-{
-  const r = run("precompact.mjs", { cwd: sandbox, hook_event_name: "PreCompact",
-    compaction_trigger: "auto" });
-  const c = ctx(r);
-  check("PreCompact: напомнил про журнал и перезапись резюме",
-    c.includes("21571") && c.includes("Состояние") && c.includes("Две правки"), c);
-}
-
-// --- 10. Битый state.json и битый frontmatter не ломают hooks ------------------
+// --- 9. Битый state.json и битый frontmatter не ломают hooks -------------------
 {
   writeFileSync(join(volnaDir, "state.json"), "{ это не json", "utf8");
   const r = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "тест" });

@@ -45,17 +45,6 @@
           }
         ]
       }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/precompact.mjs\"",
-            "timeout": 5
-          }
-        ]
-      }
     ]
   }
 }

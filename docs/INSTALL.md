@@ -94,7 +94,7 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 
 ## Hooks: что делают и как отключить
 
-Плагин `volna` ставит четыре hook'а. Они не занимают контекст (исполняются харнесом), но
+Плагин `volna` ставит три hook'а. Они не занимают контекст (исполняются харнесом), но
 запускают Node на каждое событие — по замерам **420–440 мс** на вызов, из которых почти всё —
 старт процесса Node на Windows.
 
@@ -103,7 +103,6 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 | `session-start.mjs` | старт сессии | напоминает активную задачу, этап, открытые пункты | нет |
 | `preamble.mjs` | каждое сообщение | шапка ≤20 строк: задача, этап k/13, до 3 открытых пунктов; по номеру в тексте поднимает существующий журнал | нет |
 | `gate.mjs` | `git commit`, `git push` | commit без записи журнала по текущему этапу и push без пройденного `commit` — отказ с объяснением | **да** |
-| `precompact.mjs` | перед `/compact` | требует дописать журнал до сжатия | нет |
 
 Без активной задачи (`.volna/state.json` пуст или каталога нет) все они молчат — обычный чат не
 меняется. `/volna:off` глушит шапку и напоминания, но **не гейт**: он защищает необратимое.
@@ -115,7 +114,7 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 { "hooks": { "UserPromptSubmit": [] } }
 ```
 
-Проверить hooks без живой сессии: `node hooks/test-hooks.mjs .` из корня «Волны» — 37 проверок
+Проверить hooks без живой сессии: `node hooks/test-hooks.mjs .` из корня «Волны» — 35 проверок
 на синтетическом `.volna`, включая поведение при битом `state.json` и удалённом каталоге.
 
 ## CLI над трекером
