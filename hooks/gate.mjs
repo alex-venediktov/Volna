@@ -10,6 +10,7 @@
  *
  * Нет активной задачи, нет .volna/, сопровождение заглушено - гейт молчит.
  */
+import { dirname, resolve } from "node:path";
 import { readHookInput, loadActive, runQuietly } from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
@@ -23,6 +24,10 @@ await runQuietly(async () => {
   // muted не отключает гейт: глушится сопровождение, а не защита необратимого
   const active = loadActive(input.cwd, { respectMute: false });
   if (!active) return;
+
+  // Задача живёт в рабочем каталоге «Волны». Git в стороннем репозитории (сам плагин, чужой
+  // проект) к её этапам отношения не имеет, и блокировать его - ложное срабатывание.
+  if (!insideWorkspace(commandDir(command, input.cwd), active.volnaDir)) return;
 
   const { fm, sections, task } = active;
   const stage = String(fm.stage || "").trim();
@@ -57,6 +62,41 @@ await runQuietly(async () => {
     }
   }
 });
+
+/**
+ * Каталог, в котором реально выполнится git: последний `cd <путь>` перед ним, иначе каталог
+ * сессии. Команда вида `cd <путь> && git ...` уводит git из рабочего каталога, и по одному
+ * лишь cwd это не видно.
+ */
+function commandDir(command, cwd) {
+  const base = String(cwd || process.cwd());
+  let dir = base;
+  const re = /(?:^|[;&|]|&&)\s*cd\s+(?:\/d\s+)?("[^"]+"|'[^']+'|[^\s;&|]+)/gi;
+  for (const m of command.matchAll(re)) {
+    const raw = m[1].replace(/^["']|["']$/g, "");
+    if (!raw || raw === "-") continue;
+    dir = resolve(base, toNativePath(raw));
+  }
+  return dir;
+}
+
+/** Путь из командной строки Git Bash в вид файловой системы: /c/каталог -> C:/каталог. */
+function toNativePath(p) {
+  const msys = /^\/([a-z])\/(.*)$/i.exec(p);
+  return msys ? `${msys[1].toUpperCase()}:/${msys[2]}` : p;
+}
+
+/** Лежит ли каталог внутри рабочего каталога «Волны» (там, где найден .volna). */
+function insideWorkspace(dir, volnaDir) {
+  const root = norm(dirname(volnaDir));
+  const target = norm(dir);
+  return target === root || target.startsWith(`${root}/`);
+}
+
+/** Сравнение путей: разделители и регистр на Windows значения не имеют. */
+function norm(p) {
+  return resolve(p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
 
 /** Что именно делает команда: commit, push или ничего интересного. */
 function classify(command) {

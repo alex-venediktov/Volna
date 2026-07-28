@@ -98,7 +98,7 @@ function fakeClient(workItem = {}, found = [], items = {}) {
     },
     async setTags(id, opts) {
       calls.push(["setTags", id, opts]);
-      return { id, tags: ["Back", ...(opts.add ?? [])] };
+      return { id, tags: ["прежний", ...(opts.add ?? [])] };
     },
     async createChildTask(parentId, fields, type) {
       calls.push(["createChildTask", parentId, fields, type]);
@@ -354,15 +354,15 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["create", "Task", "--title", "20311: разбор", "--parent", "2000",
-    "--estimate", "3", "--tags", "Back,Волна-1", "--confirm"], { client, log: c.log, err: c.err });
+  const code = await run(["create", "Task", "--title", "2100: суть правки", "--parent", "2000",
+    "--estimate", "3", "--tags", "первый,второй тег", "--confirm"], { client, log: c.log, err: c.err });
   const [, parent, fields, type] = client.calls.find(([m]) => m === "createChildTask") ?? [];
   check("create: код 0", code === 0, String(code));
   check("create: тип и родитель", type === "Task" && parent === "2000", `${type} ${parent}`);
   check("create: оценка попала в обе колонки часов",
     fields?.["Microsoft.VSTS.Scheduling.OriginalEstimate"] === 3 &&
     fields?.["Microsoft.VSTS.Scheduling.RemainingWork"] === 3, JSON.stringify(fields));
-  check("create: теги разделены точкой с запятой", fields?.["System.Tags"] === "Back; Волна-1",
+  check("create: теги разделены точкой с запятой", fields?.["System.Tags"] === "первый; второй тег",
     JSON.stringify(fields?.["System.Tags"]));
   check("create: номер новой задачи назван", c.text().includes("4242"), c.text());
 }
@@ -406,16 +406,16 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  await run(["link", "2001", "9315", "--rel", "duplicate", "--confirm"], { client, log: c.log, err: c.err });
+  await run(["link", "2001", "2002", "--rel", "duplicate", "--confirm"], { client, log: c.log, err: c.err });
   const [, id, target, rel] = client.calls.find(([m]) => m === "linkWorkItem") ?? [];
   check("link: вид связи переведён в имя типа трекера",
-    id === "2001" && target === "9315" && rel === "System.LinkTypes.Duplicate-Forward", `${rel}`);
+    id === "2001" && target === "2002" && rel === "System.LinkTypes.Duplicate-Forward", `${rel}`);
 }
 
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["link", "2001", "9315", "--rel", "неизвестно", "--confirm"],
+  const code = await run(["link", "2001", "2002", "--rel", "неизвестно", "--confirm"],
     { client, log: c.log, err: c.err });
   check("link: неизвестный вид связи отклонён", code === 1 && !client.calls.length, String(code));
 }
@@ -423,23 +423,23 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  await run(["tag", "2001", "--add", "Волна-1,ВтораяОчередь", "--confirm"], { client, log: c.log, err: c.err });
+  await run(["tag", "2001", "--add", "первый,второй тег", "--confirm"], { client, log: c.log, err: c.err });
   const [, , opts] = client.calls.find(([m]) => m === "setTags") ?? [];
   check("tag: список разобран по запятой",
-    opts?.add?.length === 2 && opts.add[1] === "ВтораяОчередь", JSON.stringify(opts));
-  check("tag: итоговые теги показаны", c.text().includes("Back; Волна-1"), c.text());
+    opts?.add?.length === 2 && opts.add[1] === "второй тег", JSON.stringify(opts));
+  check("tag: итоговые теги показаны", c.text().includes("прежний; первый"), c.text());
 }
 
 // --- pr list ------------------------------------------------------------------
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["pr", "list", "MG_Back", "--source", "feature/2001_суть"],
+  const code = await run(["pr", "list", "frontend", "--source", "feature/2001_суть"],
     { client, log: c.log, err: c.err });
   const [, repo, opts] = client.calls.find(([m]) => m === "listPullRequests") ?? [];
   check("pr list: чтение работает без --confirm", code === 0, String(code));
   check("pr list: ветка и статус переданы",
-    repo === "MG_Back" && opts?.source === "feature/2001_суть" && opts?.status === "active",
+    repo === "frontend" && opts?.source === "feature/2001_суть" && opts?.status === "active",
     JSON.stringify(opts));
   check("pr list: номер и ветки показаны", c.text().includes("- 88 · active"), c.text());
 }

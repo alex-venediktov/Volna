@@ -114,7 +114,7 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 { "hooks": { "UserPromptSubmit": [] } }
 ```
 
-Проверить hooks без живой сессии: `node hooks/test-hooks.mjs .` из корня «Волны» — 35 проверок
+Проверить hooks без живой сессии: `node hooks/test-hooks.mjs .` из корня «Волны» — 39 проверок
 на синтетическом `.volna`, включая поведение при битом `state.json` и удалённом каталоге.
 
 ## CLI над трекером
@@ -147,7 +147,7 @@ node "$CLI" query "[System.State]='New'" --ids                          # тол
 ```bash
 node "$CLI" comment 21571 "коротко о правке" --confirm   # или --body-file письмо.md
 node "$CLI" describe 21571 --body-file ограничение.md --confirm   # дописать абзац в описание
-node "$CLI" create Task --title "суть" --parent 21500 --estimate 4 --confirm
+node "$CLI" create Task --title "суть" --parent 21571 --estimate 4 --confirm
 node "$CLI" estimate 21571 --remaining 0 --confirm
 node "$CLI" time 21571 1.5 --confirm            # прибавить часы; --set чтобы заменить
 node "$CLI" link-pr 21571 <url PR> --confirm
@@ -169,9 +169,9 @@ node "$CLI" state 21571 Resolved --assign "<тестер>" --confirm
 ```cmd
 mkdir .claude\skills 2>nul
 mkdir .claude\commands 2>nul
-mklink /J .claude\skills\volna-flow    D:\Projects\AI\Volna\skills\volna-flow
-mklink /J .claude\skills\volna-journal D:\Projects\AI\Volna\skills\volna-journal
-mklink /J .claude\commands\volna       D:\Projects\AI\Volna\commands
+mklink /J .claude\skills\volna-flow    <путь к «Волне»>\skills\volna-flow
+mklink /J .claude\skills\volna-journal <путь к «Волне»>\skills\volna-journal
+mklink /J .claude\commands\volna       <путь к «Волне»>\commands
 ```
 
 Команды окажутся в пространстве имён `volna` — `/volna:task`, `/volna:status` и далее, то же,

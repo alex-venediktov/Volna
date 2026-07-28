@@ -3,7 +3,7 @@
  * при отсутствии состояния. Запуск: node test-hooks.mjs <корень Волны>
  */
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 
@@ -226,6 +226,32 @@ stages_done: [intake, analyze]
   const p3 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
     tool_input: { command: "git push" } });
   check("push с fix_task: пропуск", p3.out === "", p3.out);
+}
+
+// --- 7a. Гейт молчит, когда git идёт в стороннем репозитории -------------------
+{
+  write("implement", { done: ["intake", "analyze"] });
+
+  // Сторонний каталог берётся рядом с песочницей: абсолютные пути машины в тест не зашиваем.
+  const foreign = resolve(sandbox, "..", "сторонний-репозиторий").replace(/\\/g, "/");
+  const foreignMsys = foreign.replace(/^([A-Za-z]):/, (_m, d) => `/${d.toLowerCase()}`);
+
+  const outside = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: `cd ${foreign} && git push origin main` } });
+  check("push в стороннем репозитории: гейт молчит", outside.out === "", outside.out);
+
+  const outsideMsys = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: `cd ${foreignMsys} && git commit -m "правка"` } });
+  check("commit в стороннем репозитории (путь Git Bash): гейт молчит", outsideMsys.out === "", outsideMsys.out);
+
+  const inside = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: `cd ${sandbox.replace(/\\/g, "/")} && git push` } });
+  check("push в рабочем каталоге: гейт работает", decision(inside).permissionDecision === "deny", inside.out);
+
+  const nested = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "cd подпроект && git push" } });
+  check("push в репозитории внутри рабочего каталога: гейт работает",
+    decision(nested).permissionDecision === "deny", nested.out);
 }
 
 // --- 8. Гейт не трогает посторонние команды -----------------------------------
