@@ -16,6 +16,7 @@
  *   volna-tfs comment <id> <текст>         комментарий в обсуждение (markdown -> HTML)
  *   volna-tfs describe <id> --body-file f  дописать абзац в описание ([--replace] - заменить)
  *   volna-tfs create <тип> --title T       завести задачу ([--parent id] [--estimate часы])
+ *                                          [--field ref=значение] - поля процесса, флаг повторяемый
  *   volna-tfs time <id> <часы> [--set]     затраченное время: прибавить или заменить
  *   volna-tfs estimate <id> --original N   оценка и остаток работ ([--remaining M])
  *   volna-tfs link <id> <цель> [--rel r]   связь между задачами: related, parent, child
@@ -54,6 +55,11 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
     const name = a.slice(2);
+    // повторяемые флаги: --field ref=значение можно задать несколько раз, значения копятся
+    if (name === "field") {
+      (flags.field ??= []).push(argv[++i] ?? "");
+      continue;
+    }
     // флаги со значением: --comment "текст", --assign "кто", --target DEV, --body-file путь
     if (["comment", "assign", "reason", "title", "top", "target", "body", "body-file",
       "work-item", "name", "out", "parent", "estimate", "original", "remaining", "area",
@@ -353,6 +359,10 @@ async function cmdCreate(client, args, flags, log, err, readFile, env) {
     fields["Microsoft.VSTS.Scheduling.RemainingWork"] = estimate;
   }
 
+  // Обязательные поля процесса (у каждого сервера свои): умолчания из .env, флаг важнее.
+  Object.assign(fields, parseFieldAssignments(env?.TFS_CREATE_FIELDS));
+  Object.assign(fields, parseFieldAssignments(flags.field));
+
   const created = flags.parent
     ? await client.createChildTask(flags.parent, fields, type)
     : await createStandalone(client, type, fields);
@@ -368,6 +378,29 @@ async function cmdCreate(client, args, flags, log, err, readFile, env) {
 async function createStandalone(client, type, fields) {
   const wi = await client.createWorkItem(type, client.fieldOps(fields));
   return { id: String(wi.id ?? ""), url: wi.url ?? "" };
+}
+
+/**
+ * Поля процесса из строки или списка присвоений `ref=значение`. Разделитель пар - точка с
+ * запятой или перевод строки, имя поля отделяет ПЕРВЫЙ знак равенства: в значении он допустим.
+ * Числовое значение отдаётся числом - поля вроде приоритета строку не принимают.
+ */
+export function parseFieldAssignments(source) {
+  const items = Array.isArray(source)
+    ? source
+    : String(source ?? "").split(/[;\n]/);
+  const out = {};
+  for (const item of items) {
+    const text = String(item ?? "").trim();
+    if (!text) continue;
+    const eq = text.indexOf("=");
+    if (eq <= 0) continue;
+    const ref = text.slice(0, eq).trim();
+    const raw = text.slice(eq + 1).trim();
+    if (!ref) continue;
+    out[ref] = /^-?\d+(?:[.,]\d+)?$/.test(raw) ? Number(raw.replace(",", ".")) : raw;
+  }
+  return out;
 }
 
 /** Оценка и остаток. Остаток гасится нулём при закрытии, иначе он висит в отчётах спринта. */
@@ -677,7 +710,8 @@ function describeIntent(command, args, flags) {
       `${flags["body-file"] ? ` текстом из файла ${flags["body-file"]}` : ""}.`;
     case "create": return `Собирался завести ${args[0] ?? "Task"} «${flags.title ?? ""}»` +
       `${flags.parent ? ` под задачей ${flags.parent}` : " без родителя"}` +
-      `${flags.estimate ? `, оценка ${flags.estimate}` : ""}.`;
+      `${flags.estimate ? `, оценка ${flags.estimate}` : ""}` +
+      `${flags.field?.length ? `, поля процесса: ${flags.field.join("; ")}` : ""}.`;
     case "estimate": return `Собирался задать задаче ${id} часы: ` +
       `${flags.original != null ? `оценка ${flags.original}` : ""}` +
       `${flags.remaining != null ? ` остаток ${flags.remaining}` : ""}.`;
@@ -709,7 +743,9 @@ function usage() {
     "  comment <id> <текст> --confirm          комментарий в обсуждение (или --body-file файл)",
     "  describe <id> --body-file файл --confirm   дописать абзац в описание ([--replace])",
     "  create <тип> --title T [--parent id] [--estimate часы] [--tags A,B]",
-    "         [--assign кто] [--area путь] [--body-file файл] --confirm   завести задачу",
+    "         [--assign кто] [--area путь] [--body-file файл]",
+    "         [--field ref=значение ...] --confirm   завести задачу",
+    "         обязательные поля процесса - флагом --field (повторяемый) или TFS_CREATE_FIELDS в .env",
     "  time <id> <часы> [--set] --confirm      списать часы (по умолчанию прибавить)",
     "  estimate <id> [--original N] [--remaining M] --confirm   оценка и остаток работ",
     "  link <id> <цель> [--rel related|parent|child|duplicate] --confirm   связь задач",

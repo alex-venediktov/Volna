@@ -30,6 +30,8 @@
 - база — `TFS_BASE_URL`, проект — `TFS_PROJECT`, область команды — `TFS_AREA_PATH`;
 - доступ — PAT из файла `TFS_PAT_FILE` (utf-8-sig, края обрезаются). Секрет в переменную
   окружения не кладём;
+- обязательные поля процесса у новых задач — `TFS_CREATE_FIELDS` (`ref=значение`, пары через
+  `;`) либо флаг `--field ref=значение` у `volna-tfs create`. Без них сервер отвечает `TF401320`;
 - подвохи REST API (кодировка тела, `$expand=relations`, HTML в многострочных полях) —
   `docs/reference/tfs-rest.md` «Волны»; готовый клиент — `lib/tfs-client.mjs`.
 

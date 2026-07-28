@@ -4,10 +4,10 @@
  *
  * Запуск: node bin/test-volna-tfs.mjs
  */
-import { run, parseArgs } from "./volna-tfs.mjs";
+import { run, parseArgs, parseFieldAssignments } from "./volna-tfs.mjs";
 import { parseEnv } from "../lib/env.mjs";
-import { TfsClient, normalizeRefName, parsePullRequestUrl, pullRequestArtifactUrl, pullRequestIds }
-  from "../lib/tfs-client.mjs";
+import { TfsClient, normalizeRefName, parsePullRequestUrl, pullRequestArtifactUrl, pullRequestIds,
+  errorHint } from "../lib/tfs-client.mjs";
 
 let failures = 0;
 function check(name, cond, detail = "") {
@@ -381,6 +381,63 @@ const capture = () => {
   const client = fakeClient(WI);
   const code = await run(["create", "Task", "--parent", "2000", "--confirm"], { client, log: c.log, err: c.err });
   check("create: без заголовка ничего не создаётся", code === 1 && !client.calls.length, String(code));
+}
+
+// --- create: обязательные поля процесса ---------------------------------------
+{
+  const fields = parseFieldAssignments("first.field=значение с = внутри; second.field=2\nthird=x");
+  check("поля процесса: пары через ; и перевод строки",
+    fields["first.field"] === "значение с = внутри" && fields.third === "x", JSON.stringify(fields));
+  check("поля процесса: число отдаётся числом", fields["second.field"] === 2, JSON.stringify(fields));
+  check("поля процесса: пустая строка ничего не даёт",
+    Object.keys(parseFieldAssignments("")).length === 0 &&
+    Object.keys(parseFieldAssignments(undefined)).length === 0, "");
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["create", "Task", "--title", "суть", "--field", "some.field=из флага",
+    "--field", "other.field=7", "--confirm"],
+    { client, log: c.log, err: c.err, env: { TFS_CREATE_FIELDS: "some.field=из env; env.only=да" } });
+  const [, , ops] = client.calls.find(([m]) => m === "createWorkItem") ?? [];
+  const value = (ref) => ops?.find((o) => o.path === `/fields/${ref}`)?.value;
+  check("create: поле процесса из .env попало в запрос", value("env.only") === "да", JSON.stringify(ops));
+  check("create: флаг важнее переменной окружения", value("some.field") === "из флага", JSON.stringify(ops));
+  check("create: числовое значение поля ушло числом", value("other.field") === 7, JSON.stringify(ops));
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["create", "Task", "--title", "суть", "--field", "some.field=значение"],
+    { client, log: c.log, err: c.err });
+  check("create: без --confirm поля процесса названы в намерении",
+    c.errText().includes("some.field=значение") && !client.calls.length, c.errText());
+}
+
+// --- поля: скаляр и подсказки к ошибкам сервера -------------------------------
+{
+  const client = new TfsClient({ baseUrl: "http://tracker", pat: "x", fetchFn: async () => ({}) });
+  let message = "";
+  try {
+    client.fieldOps({ "System.Description": { value: "текст" } });
+  } catch (e) {
+    message = e.message;
+  }
+  check("fieldOps: объект вместо строки отвергается с именем поля",
+    message.includes("System.Description"), message);
+  check("fieldOps: скаляры проходят",
+    client.fieldOps({ a: "текст", b: 2, c: true }).length === 3, "");
+}
+
+{
+  const required = errorHint('{"customProperties":{"fieldReferenceName":"some.field"},"message":"TF401320: Rule Error"}');
+  check("подсказка: обязательное поле процесса названо",
+    required.includes("some.field") && required.includes("--field"), required);
+  const cast = errorHint('{"message":"Unable to cast object of type \'Dictionary`2\' to type \'System.String\'."}');
+  check("подсказка: значение поля ушло объектом", cast.includes("строк"), cast);
+  check("подсказка: обычная ошибка без подсказки", errorHint('{"message":"HTTP 500"}') === "", errorHint("x"));
 }
 
 // --- estimate, link, tag ------------------------------------------------------
