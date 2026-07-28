@@ -93,8 +93,9 @@ hooks/                             шапка сессии, гейт на commit
 hooks/test-hooks.mjs               35 проверок hooks на синтетическом .volna
 lib/tfs-client.mjs                 клиент REST трекера (TFS / Azure DevOps Server)
 lib/env.mjs                        чтение .env без зависимостей
-bin/volna-tfs.mjs                  CLI над трекером: get/query/comment/time/pr/link-pr/attach/state
-bin/test-volna-tfs.mjs             84 проверки CLI на поддельном клиенте, без сети
+bin/volna-tfs.mjs                  CLI над трекером: get/query/states/attachments/comment/describe/
+                                   create/time/estimate/link/tag/pr/link-pr/attach/state
+bin/test-volna-tfs.mjs             121 проверка CLI на поддельном клиенте, без сети
 install.ps1                        установка одной командой PowerShell
 .env.example                       контракт окружения: адреса, пути, путь к токену
 docs/STATUS.md                     состояние работ, решения, что осталось

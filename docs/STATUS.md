@@ -244,14 +244,15 @@ W4 — `docs/ONBOARDING.md`, `docs/COST.md` с замерами от 26.07, ра
 
 | Артефакт | Что внутри |
 |---|---|
-| `bin/volna-tfs.mjs` | `check`, `get`, `query`, `comment`, `time`, `pr create`, `pr status`, `link-pr`, `attach`, `state`. Чтение свободно, **любая запись только с `--confirm`**: без флага команда печатает, что собиралась изменить, и выходит с кодом 1 |
+| `bin/volna-tfs.mjs` | чтение: `check`, `get` (с комментариями обсуждения), `query`, `states`, `attachments`, `pr list`, `pr status`; запись: `comment`, `describe`, `create`, `time`, `estimate`, `link`, `tag`, `pr create`, `link-pr`, `attach`, `state`. Чтение свободно, **любая запись только с `--confirm`**: без флага команда печатает, что собиралась изменить, и выходит с кодом 1 |
 | `lib/env.mjs` | чтение `.env` без зависимостей и без флага `--env-file`; заданная переменная окружения важнее файла; поиск вверх по дереву |
 | `commands/recall.md` | поиск по указателю знаний → записям → журналам → KB-серверу; пустой результат — законный ответ, выдумывать «прошлый опыт» запрещено |
-| `bin/test-volna-tfs.mjs` | 84 проверки на поддельном клиенте и на клиенте с подменённым `fetch`: ни одна пишущая команда без `--confirm` не делает ни одного вызова |
+| `bin/test-volna-tfs.mjs` | 121 проверка на поддельном клиенте и на клиенте с подменённым `fetch`: ни одна пишущая команда без `--confirm` не делает ни одного вызова |
 
-Подключено в флоу: `intake` зовёт `get` за постановкой, `implement` — `state <id> Active` перед
-первой правкой, `close` — `state`/`time`/`attach`/`link-pr` с подтверждением на каждое изменение,
-`doctor` — `check` для диагностики доступа.
+Подключено в флоу: `intake` зовёт `get` за постановкой и `attachments` за картинками, `implement` —
+`state <id> Active` перед первой правкой, `push-pr` — `create` для задачи-фикса и `pr list`/`pr create`,
+`close` — `describe`/`state`/`time`/`estimate`/`attach`/`link-pr` с подтверждением на каждое
+изменение, `doctor` — `check` для диагностики доступа.
 
 Решения по ходу:
 - ~~**`link-pr` вешает гиперссылку, а не artifact-ссылку**: artifact-URI не собрать из URL без

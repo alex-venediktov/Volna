@@ -11,9 +11,17 @@
  *   volna-tfs check                        проверить доступ (для /volna:doctor)
  *   volna-tfs get <id>                     задача: поля, постановка, обсуждение, связи, вложения
  *   volna-tfs query <запрос>               выборка WIQL: id, тип, состояние, заголовок
+ *   volna-tfs states <тип>                 состояния и причины типа задачи (справочник процесса)
+ *   volna-tfs attachments <id> [--out dir] скачать вложения задачи (анонимно трекер отдаёт 401)
  *   volna-tfs comment <id> <текст>         комментарий в обсуждение (markdown -> HTML)
+ *   volna-tfs describe <id> --body-file f  дописать абзац в описание ([--replace] - заменить)
+ *   volna-tfs create <тип> --title T       завести задачу ([--parent id] [--estimate часы])
  *   volna-tfs time <id> <часы> [--set]     затраченное время: прибавить или заменить
+ *   volna-tfs estimate <id> --original N   оценка и остаток работ ([--remaining M])
+ *   volna-tfs link <id> <цель> [--rel r]   связь между задачами: related, parent, child
+ *   volna-tfs tag <id> --add A --remove B  теги задачи
  *   volna-tfs pr create <репо> <ветка>     создать pull request (заголовок и описание флагами)
+ *   volna-tfs pr list <репо> [--source b]  pull request'ы репозитория (по умолчанию активные)
  *   volna-tfs pr status <репо> <номер>     состояние PR: слияние, коммиты, связанные задачи
  *   volna-tfs link-pr <id> <репо> <номер>  связь задача-PR (или прежняя форма: <id> <url>)
  *   volna-tfs attach <id> <файл> [--discussion] [--comment <текст>]
@@ -21,16 +29,18 @@
  *
  * Флаги: --confirm (обязателен для записи), --json (сырой ответ вместо markdown).
  */
-import { readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TfsClient, tfsConfigFromEnv, summarize, pullRequestIds, parsePullRequestUrl,
   markdownToTfsHtml, htmlToMarkdown } from "../lib/tfs-client.mjs";
 import { loadEnv } from "../lib/env.mjs";
 
-const WRITE_COMMANDS = new Set(["comment", "time", "link-pr", "attach", "state"]);
+const WRITE_COMMANDS = new Set([
+  "comment", "time", "link-pr", "attach", "state", "describe", "create", "estimate", "link", "tag",
+]);
 
-/** Пишет ли команда в трекер: у составной `pr` пишет только `create`, статус свободен. */
+/** Пишет ли команда в трекер: у составной `pr` пишет только `create`, остальное чтение. */
 function isWriteCommand(command, args) {
   if (command === "pr") return args[0] === "create";
   return WRITE_COMMANDS.has(command);
@@ -46,7 +56,8 @@ export function parseArgs(argv) {
     const name = a.slice(2);
     // флаги со значением: --comment "текст", --assign "кто", --target DEV, --body-file путь
     if (["comment", "assign", "reason", "title", "top", "target", "body", "body-file",
-      "work-item", "name"].includes(name)) {
+      "work-item", "name", "out", "parent", "estimate", "original", "remaining", "area",
+      "iteration", "tags", "rel", "source", "status", "add", "remove"].includes(name)) {
       flags[name] = argv[++i] ?? "";
     } else {
       flags[name] = true;
@@ -96,7 +107,14 @@ export async function run(argv, deps = {}) {
       case "check": return await cmdCheck(client, log);
       case "get": return await cmdGet(client, args, flags, log, err);
       case "query": return await cmdQuery(client, args, flags, log, err);
-      case "comment": return await cmdComment(client, args, log, err);
+      case "states": return await cmdStates(client, args, flags, log, err);
+      case "attachments": return await cmdAttachments(client, args, flags, log, err, deps.writeFile);
+      case "comment": return await cmdComment(client, args, flags, log, err, readFile);
+      case "describe": return await cmdDescribe(client, args, flags, log, err, readFile);
+      case "create": return await cmdCreate(client, args, flags, log, err, readFile, env);
+      case "estimate": return await cmdEstimate(client, args, flags, log, err);
+      case "link": return await cmdLink(client, args, flags, log, err);
+      case "tag": return await cmdTag(client, args, flags, log, err);
       case "time": return await cmdTime(client, args, flags, log, err);
       case "pr": return await cmdPr(client, args, flags, log, err, readFile, env);
       case "link-pr": return await cmdLinkPr(client, args, flags, log, err);
@@ -157,7 +175,16 @@ async function cmdGet(client, args, flags, log, err) {
 
   if (s.description) out.push("", "## Описание", s.description);
   if (s.repro) out.push("", "## Шаги воспроизведения", s.repro);
-  if (s.history) out.push("", "## Обсуждение", s.history);
+
+  // Обсуждение собирается из ревизий: поле System.History отдаёт только последнюю правку и
+  // обычно приходит пустым, из-за чего согласованный вариант решения терялся целиком.
+  const comments = await readComments(client, id, s.history);
+  if (comments.length) {
+    out.push("", `## Обсуждение (${comments.length})`);
+    for (const c of comments) {
+      out.push("", `**${c.by || "неизвестно"}**${c.date ? ` · ${c.date.slice(0, 10)}` : ""}`, c.text);
+    }
+  }
 
   const fields = wi.fields ?? {};
   const done = fields["Microsoft.VSTS.Scheduling.CompletedWork"];
@@ -166,11 +193,63 @@ async function cmdGet(client, args, flags, log, err) {
     out.push("", `часы: списано ${done ?? 0}${estimate != null ? `, оценка ${estimate}` : ""}`);
   }
 
-  if (!s.description && !s.repro && !s.history) {
+  if (!s.description && !s.repro && !comments.length) {
     out.push("", "Текста нет ни в описании, ни в обсуждении - постановка может быть только в",
-      "картинках-вложениях. Скачай их и посмотри, прежде чем спрашивать человека.");
+      "картинках-вложениях. Скачай их и посмотри, прежде чем спрашивать человека:",
+      `volna-tfs attachments ${s.id} --out <каталог>`);
   }
 
+  log(out.join("\n"));
+  return 0;
+}
+
+/**
+ * Комментарии обсуждения. Отдельный запрос ревизий может быть недоступен (права, старая версия
+ * сервера) - тогда возвращается то, что лежало в поле, лишь бы чтение задачи не падало.
+ */
+async function readComments(client, id, fallbackHistory) {
+  try {
+    const list = await client.comments(id);
+    if (list.length) return list;
+  } catch {
+    // ревизии недоступны: ниже отдаётся последняя правка из поля
+  }
+  return fallbackHistory ? [{ by: "", date: "", text: fallbackHistory }] : [];
+}
+
+async function cmdStates(client, args, flags, log, err) {
+  const type = args[0];
+  if (!type) { err("Нужен тип задачи: volna-tfs states <Task|Bug|User Story>"); return 1; }
+
+  const states = await client.workItemTypeStates(type);
+  const reasons = await client.fieldAllowedValues(type, "System.Reason").catch(() => []);
+  if (flags.json) { log(JSON.stringify({ states, reasons }, null, 2)); return 0; }
+
+  const out = [`# ${type}: состояния и причины`, ""];
+  out.push("состояния: " + (states.map((s) => `${s.name} (${s.category})`).join(", ") || "не отданы"));
+  out.push("причины: " + (reasons.join(", ") || "не отданы"));
+  out.push("", "Причина задаётся только значением из списка: свободный текст сервер отклоняет,",
+    "и смена состояния при этом не выполняется вообще.");
+  log(out.join("\n"));
+  return 0;
+}
+
+/** Скачать вложения задачи: постановка часто только в картинках, а анонимно трекер отдаёт 401. */
+async function cmdAttachments(client, args, flags, log, err, writeFileFn) {
+  const id = args[0];
+  if (!id) { err("Нужен id задачи: volna-tfs attachments <id> [--out <каталог>]"); return 1; }
+
+  const dir = String(flags.out ?? ".");
+  const files = await client.downloadAttachments(id);
+  if (!files.length) { log(`Задача ${id}: вложений нет.`); return 0; }
+
+  const write = writeFileFn ?? ((p, data) => { mkdirSync(dir, { recursive: true }); writeFileSync(p, data); });
+  const out = [`Задача ${id}: вложений ${files.length}`];
+  for (const f of files) {
+    const path = join(dir, f.name);
+    write(path, f.data);
+    out.push(`- ${path} (${f.data.length} байт)`);
+  }
   log(out.join("\n"));
   return 0;
 }
@@ -217,13 +296,149 @@ function toWiql(text) {
 
 // -- команды записи (только с --confirm) --------------------------------------
 
-async function cmdComment(client, args, log, err) {
+async function cmdComment(client, args, flags, log, err, readFile) {
   const id = args[0];
-  const text = args.slice(1).join(" ");
-  if (!id || !text) { err("Нужны id и текст: volna-tfs comment <id> <текст> --confirm"); return 1; }
+  const text = bodyText(args.slice(1).join(" "), flags, readFile);
+  if (!id || !text) {
+    err("Нужны id и текст: volna-tfs comment <id> <текст> --confirm (или --body-file <файл>)");
+    return 1;
+  }
   await client.addComment(id, markdownToTfsHtml(text));
   log(`Задача ${id}: комментарий добавлен.`);
+  log("Исправить его нельзя: комментарий - ревизия истории, правка отвечает 405.");
   return 0;
+}
+
+/**
+ * Описание задачи: по умолчанию абзац дописывается в конец. Ограничения реализации и отклонения
+ * от эталона живут именно здесь, а замена целиком стёрла бы постановку.
+ */
+async function cmdDescribe(client, args, flags, log, err, readFile) {
+  const id = args[0];
+  const text = bodyText(args.slice(1).join(" "), flags, readFile);
+  if (!id || !text) {
+    err("Нужны id и текст: volna-tfs describe <id> --body-file <файл> --confirm [--replace]");
+    return 1;
+  }
+  const res = await client.setDescription(id, markdownToTfsHtml(text), { replace: flags.replace === true });
+  log(`Задача ${id}: описание ${res.replaced ? "заменено" : "дополнено"}.`);
+  return 0;
+}
+
+/**
+ * Завести задачу. Родитель ставится связью сразу: без него задача теряется вне стори. Оценка
+ * пишется в обе колонки часов - по конвенции команды у новой задачи остаток равен оценке.
+ */
+async function cmdCreate(client, args, flags, log, err, readFile, env) {
+  const type = args[0] || "Task";
+  const title = String(flags.title ?? "").trim();
+  if (!title) {
+    err("Нужен заголовок: volna-tfs create <тип> --title <заголовок> [--parent <id>] --confirm");
+    return 1;
+  }
+
+  const fields = { "System.Title": title };
+  const area = flags.area ?? env?.TFS_AREA_PATH;
+  if (area) fields["System.AreaPath"] = area;
+  if (flags.iteration) fields["System.IterationPath"] = flags.iteration;
+  if (flags.assign) fields["System.AssignedTo"] = flags.assign;
+  if (flags.tags) fields["System.Tags"] = String(flags.tags).split(",").map((t) => t.trim()).filter(Boolean).join("; ");
+
+  const description = bodyText("", flags, readFile);
+  if (description) fields["System.Description"] = markdownToTfsHtml(description);
+
+  const estimate = Number(String(flags.estimate ?? "").replace(",", "."));
+  if (Number.isFinite(estimate) && estimate > 0) {
+    fields["Microsoft.VSTS.Scheduling.OriginalEstimate"] = estimate;
+    fields["Microsoft.VSTS.Scheduling.RemainingWork"] = estimate;
+  }
+
+  const created = flags.parent
+    ? await client.createChildTask(flags.parent, fields, type)
+    : await createStandalone(client, type, fields);
+
+  log(`Задача ${created.id} создана: ${title}`);
+  if (flags.parent) log(`родитель: ${flags.parent}`);
+  if (!Number.isFinite(estimate) || estimate <= 0) {
+    log("Оценка не задана: по конвенции команды у задачи должны быть заполнены часы (--estimate).");
+  }
+  return 0;
+}
+
+async function createStandalone(client, type, fields) {
+  const wi = await client.createWorkItem(type, client.fieldOps(fields));
+  return { id: String(wi.id ?? ""), url: wi.url ?? "" };
+}
+
+/** Оценка и остаток. Остаток гасится нулём при закрытии, иначе он висит в отчётах спринта. */
+async function cmdEstimate(client, args, flags, log, err) {
+  const id = args[0];
+  const original = numberFlag(flags.original);
+  const remaining = numberFlag(flags.remaining);
+  if (!id || (original == null && remaining == null)) {
+    err("Нужны id и хотя бы одно значение: volna-tfs estimate <id> [--original N] [--remaining M] --confirm");
+    return 1;
+  }
+  const res = await client.setEstimate(id, { original, remaining });
+  const parts = [];
+  if (original != null) parts.push(`оценка ${res["Microsoft.VSTS.Scheduling.OriginalEstimate"]}`);
+  if (remaining != null) parts.push(`остаток ${res["Microsoft.VSTS.Scheduling.RemainingWork"]}`);
+  log(`Задача ${id}: ${parts.join(", ")}.`);
+  return 0;
+}
+
+const REL_BY_NAME = {
+  related: "System.LinkTypes.Related",
+  parent: "System.LinkTypes.Hierarchy-Reverse",
+  child: "System.LinkTypes.Hierarchy-Forward",
+  duplicate: "System.LinkTypes.Duplicate-Forward",
+};
+
+/** Связь между задачами: дубли постановки и зависимости иначе видны только в журнале. */
+async function cmdLink(client, args, flags, log, err) {
+  const id = args[0];
+  const target = args[1];
+  const kind = String(flags.rel ?? "related").toLowerCase();
+  const rel = REL_BY_NAME[kind];
+  if (!id || !target || !rel) {
+    err("Нужны две задачи и вид связи: volna-tfs link <id> <цель> [--rel related|parent|child|duplicate] --confirm");
+    return 1;
+  }
+  await client.linkWorkItem(id, target, rel);
+  log(`Задача ${id}: связь ${kind} с задачей ${target} добавлена.`);
+  return 0;
+}
+
+/** Теги задачи: список пишется целиком, поэтому текущие значения читаются и дополняются. */
+async function cmdTag(client, args, flags, log, err) {
+  const id = args[0];
+  const add = splitList(flags.add);
+  const remove = splitList(flags.remove);
+  if (!id || (!add.length && !remove.length)) {
+    err("Нужны id и теги: volna-tfs tag <id> --add A,B [--remove C] --confirm");
+    return 1;
+  }
+  const res = await client.setTags(id, { add, remove });
+  log(`Задача ${id}: теги - ${res.tags.join("; ") || "нет"}.`);
+  return 0;
+}
+
+/** Текст записи: аргумент командной строки или файл. Длинная кириллица в argv бьётся. */
+function bodyText(inline, flags, readFile) {
+  if (flags["body-file"]) return Buffer.from(readFile(flags["body-file"])).toString("utf8");
+  if (flags.body) return String(flags.body);
+  return String(inline ?? "");
+}
+
+function numberFlag(value) {
+  if (value == null || value === true) return null;
+  const n = Number(String(value).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+function splitList(value) {
+  if (!value || value === true) return [];
+  return String(value).split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 async function cmdTime(client, args, flags, log, err) {
@@ -250,8 +465,9 @@ async function cmdPr(client, args, flags, log, err, readFile, env) {
   switch (args[0]) {
     case "create": return await cmdPrCreate(client, args.slice(1), flags, log, err, readFile, env);
     case "status": return await cmdPrStatus(client, args.slice(1), flags, log, err);
+    case "list": return await cmdPrList(client, args.slice(1), flags, log, err);
     default:
-      err("Нужна подкоманда: volna-tfs pr create <репо> <ветка> | volna-tfs pr status <репо> <номер>");
+      err("Нужна подкоманда: volna-tfs pr create <репо> <ветка> | pr list <репо> | pr status <репо> <номер>");
       return 1;
   }
 }
@@ -301,6 +517,30 @@ async function cmdPrCreate(client, args, flags, log, err, readFile, env) {
   } else {
     log(`Задача не привязана: volna-tfs link-pr <id> ${repo} ${pr.id} --confirm`);
   }
+  return 0;
+}
+
+/** Список PR: с --source видно, не создан ли pull request на эту ветку раньше. */
+async function cmdPrList(client, args, flags, log, err) {
+  const repo = args[0];
+  if (!repo) { err("Нужен репозиторий: volna-tfs pr list <репо> [--source <ветка>] [--status all]"); return 1; }
+
+  const list = await client.listPullRequests(repo, {
+    source: flags.source,
+    target: flags.target,
+    status: flags.status || "active",
+    top: flags.top,
+  });
+  if (flags.json) { log(JSON.stringify(list, null, 2)); return 0; }
+  if (!list.length) {
+    log(`PR не найдено${flags.source ? ` для ветки ${flags.source}` : ""}.`);
+    return 0;
+  }
+  const out = [`Найдено PR: ${list.length}`, ""];
+  for (const pr of list) {
+    out.push(`- ${pr.id} · ${pr.status} · ${pr.source} -> ${pr.target} · ${pr.title}`);
+  }
+  log(out.join("\n"));
   return 0;
 }
 
@@ -390,11 +630,39 @@ async function cmdState(client, args, flags, log, err) {
   const fields = { "System.State": state };
   if (flags.assign) fields["System.AssignedTo"] = flags.assign;
   if (flags.reason) fields["System.Reason"] = flags.reason;
-  await client.updateWorkItem(id, client.fieldOps(fields));
+  try {
+    await client.updateWorkItem(id, client.fieldOps(fields));
+  } catch (e) {
+    return await explainStateFailure(client, id, state, flags, e, log, err);
+  }
   log(`Задача ${id}: состояние -> ${state}` +
     `${flags.assign ? `, назначено ${flags.assign}` : ""}${flags.reason ? `, причина «${flags.reason}»` : ""}.`);
   log("Проверь в трекере: правила перехода состояний могут потребовать других полей (TF401320).");
   return 0;
+}
+
+/**
+ * Разбор отказа при смене состояния. Причина и состояние ограничены списком процесса, а свободный
+ * текст откатывает всю операцию целиком - поэтому вместо сырой ошибки печатаются допустимые значения.
+ */
+async function explainStateFailure(client, id, state, flags, error, log, err) {
+  if (!/not in the list of supported values/i.test(error.message)) throw error;
+
+  const field = /'Reason'/i.test(error.message) ? "причина" : "состояние";
+  err(`Задача ${id}: ${field} отклонена трекером - значение задаётся только из списка процесса.`);
+
+  const wi = await client.getWorkItem(id).catch(() => null);
+  const type = String(wi?.fields?.["System.WorkItemType"] ?? "Task");
+  const [states, reasons] = await Promise.all([
+    client.workItemTypeStates(type).catch(() => []),
+    client.fieldAllowedValues(type, "System.Reason").catch(() => []),
+  ]);
+  if (states.length) err(`${type}: состояния - ${states.map((s) => s.name).join(", ")}`);
+  if (reasons.length) err(`${type}: причины - ${reasons.join(", ")}`);
+  err(`Повтори без --reason (подставится значение по умолчанию) или со значением из списка:`);
+  err(`volna-tfs state ${id} ${state} --confirm`);
+  err("Состояние НЕ изменено: сервер откатывает весь запрос, а не отдельное поле.");
+  return 1;
 }
 
 // -- служебное ----------------------------------------------------------------
@@ -403,7 +671,20 @@ async function cmdState(client, args, flags, log, err) {
 function describeIntent(command, args, flags) {
   const id = args[0] ?? "<id>";
   switch (command) {
-    case "comment": return `Собирался добавить комментарий к задаче ${id}: «${args.slice(1).join(" ")}».`;
+    case "comment": return "Собирался добавить комментарий к задаче " + id +
+      (flags["body-file"] ? ` из файла ${flags["body-file"]}.` : `: «${args.slice(1).join(" ")}».`);
+    case "describe": return `Собирался ${flags.replace ? "заменить" : "дополнить"} описание задачи ${id}` +
+      `${flags["body-file"] ? ` текстом из файла ${flags["body-file"]}` : ""}.`;
+    case "create": return `Собирался завести ${args[0] ?? "Task"} «${flags.title ?? ""}»` +
+      `${flags.parent ? ` под задачей ${flags.parent}` : " без родителя"}` +
+      `${flags.estimate ? `, оценка ${flags.estimate}` : ""}.`;
+    case "estimate": return `Собирался задать задаче ${id} часы: ` +
+      `${flags.original != null ? `оценка ${flags.original}` : ""}` +
+      `${flags.remaining != null ? ` остаток ${flags.remaining}` : ""}.`;
+    case "link": return `Собирался связать задачу ${id} с задачей ${args[1] ?? "<цель>"} ` +
+      `связью ${flags.rel ?? "related"}.`;
+    case "tag": return `Собирался изменить теги задачи ${id}: ` +
+      `${flags.add ? `добавить ${flags.add}` : ""}${flags.remove ? ` убрать ${flags.remove}` : ""}.`;
     case "time": return `Собирался ${flags.set ? "заменить" : "прибавить"} часы задачи ${id}: ${args[1]}.`;
     case "pr": return `Собирался создать PR в репозитории ${args[1] ?? "<репо>"}: ветка ` +
       `${args[2] ?? "<ветка>"} -> ${flags.target ?? "<целевая ветка>"}, заголовок ` +
@@ -423,10 +704,19 @@ function usage() {
     "  check                                   проверить доступ",
     "  get <id> [--json]                       задача: поля, постановка, обсуждение, связи, вложения",
     "  query <запрос> [--top N] [--ids] [--json]   выборка WIQL; можно только условие после WHERE",
-    "  comment <id> <текст> --confirm          комментарий в обсуждение",
+    "  states <тип> [--json]                   состояния и причины типа задачи",
+    "  attachments <id> [--out каталог]        скачать вложения задачи",
+    "  comment <id> <текст> --confirm          комментарий в обсуждение (или --body-file файл)",
+    "  describe <id> --body-file файл --confirm   дописать абзац в описание ([--replace])",
+    "  create <тип> --title T [--parent id] [--estimate часы] [--tags A,B]",
+    "         [--assign кто] [--area путь] [--body-file файл] --confirm   завести задачу",
     "  time <id> <часы> [--set] --confirm      списать часы (по умолчанию прибавить)",
+    "  estimate <id> [--original N] [--remaining M] --confirm   оценка и остаток работ",
+    "  link <id> <цель> [--rel related|parent|child|duplicate] --confirm   связь задач",
+    "  tag <id> [--add A,B] [--remove C] --confirm   теги задачи",
     "  pr create <репо> <ветка> --title T [--target ветка] [--body-file файл]",
     "            [--work-item id] --confirm   создать pull request",
+    "  pr list <репо> [--source ветка] [--status all] [--json]   pull request'ы репозитория",
     "  pr status <репо> <номер> [--json]       состояние PR: слияние, коммиты",
     "  link-pr <id> <репо> <номер> --confirm   нативная связь задача-PR (или <id> <url>)",
     "  attach <id> <файл> [--discussion] [--comment T] --confirm",

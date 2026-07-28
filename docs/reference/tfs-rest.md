@@ -17,7 +17,7 @@
 | PAT | из файла (`TFS_PAT_FILE`), кодировка **utf-8-sig** → срезать BOM и края. В переменной окружения секрет не держим |
 | project-scoped | `wiql`, создание work item, загрузка вложений требуют префикс проекта: `${TFS_BASE_URL}/${TFS_PROJECT}/_apis/...` |
 
-## Четыре подвоха, которые стоят часа отладки
+## Шесть подвохов, которые стоят часа отладки
 
 1. **Тело запроса — UTF8-байтами.** Строка вместо байтов → кириллица бьётся, сервер отвечает
    **TF401319**. Ошибка выглядит как проблема прав или правил поля, но это клиентская
@@ -34,6 +34,18 @@
    веб-ссылке на PR нет:
    `vstfs:///Git/PullRequestId/{projectId}%2F{repositoryId}%2F{pullRequestId}` — разделители
    именно `%2F`, с косыми чертами сервер связь не примет.
+5. **`System.History` в ответе work item не равно обсуждению.** Поле хранит только последнюю
+   правку и в обычном ответе чаще всего приходит пустым: у задачи с двумя комментариями оно
+   пустое, а комментарии лежат в `/updates` (`fields["System.History"].newValue` каждой
+   ревизии). Читать обсуждение по полю — значит регулярно терять согласованную постановку.
+   В клиенте: `comments(id)`.
+6. **Причина и состояние ограничены списком процесса.** Свободный текст в `System.Reason`
+   отклоняется с `not in the list of supported values`, и сервер откатывает **весь** patch:
+   состояние тоже не меняется. Допустимые значения — только через **preview**-версии API
+   (`5.0` отвечает `VssInvalidPreviewVersionException`):
+   `GET /{project}/_apis/wit/workitemtypes/{Type}/states?api-version=5.0-preview` и
+   `GET /{project}/_apis/wit/workitemtypes/{Type}/fields/System.Reason?$expand=allowedValues&api-version=5.0-preview.2`.
+   В CLI: `states <тип>`.
 
 ## Pull request (`_apis/git`)
 
@@ -70,6 +82,9 @@
 | обновить | `PATCH /_apis/wit/workitems/{id}`, тот же content-type |
 | вложение | `POST /{project}/_apis/wit/attachments?fileName=...`, `application/octet-stream`, затем связь `AttachedFile` |
 | скачать вложение | `GET <relation.url>` — **с PAT**: анонимно 401 |
+| состояния типа | `GET /{project}/_apis/wit/workitemtypes/{Type}/states?api-version=5.0-preview` |
+| допустимые значения поля | `GET /{project}/_apis/wit/workitemtypes/{Type}/fields/{поле}?$expand=allowedValues&api-version=5.0-preview.2` |
+| pull request'ы репозитория | `GET /_apis/git/repositories/{repoId}/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName=refs/heads/<ветка>` |
 
 Формат json-patch: `[{"op":"add","path":"/fields/System.Title","value":"..."}]`;
 связь — `{"op":"add","path":"/relations/-","value":{"rel":"...","url":"..."}}`.

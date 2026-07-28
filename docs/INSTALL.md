@@ -126,6 +126,8 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 CLI=$(ls -d ~/.claude/plugins/cache/volna/volna/*/bin/volna-tfs.mjs | sort -V | tail -1)
 node "$CLI" check          # доступ есть?
 node "$CLI" get 21571      # постановка, обсуждение, связи, вложения одним markdown
+node "$CLI" attachments 21571 --out ./вложения   # картинки постановки: анонимно трекер даёт 401
+node "$CLI" states Task    # допустимые состояния и причины: свободный текст сервер не примет
 ```
 
 Выборка по трекеру — `query`. Полный WIQL можно не писать: строка без `SELECT` считается
@@ -143,7 +145,10 @@ node "$CLI" query "[System.State]='New'" --ids                          # тол
 Запись требует `--confirm`, и ставит его **человек**:
 
 ```bash
-node "$CLI" comment 21571 "коротко о правке" --confirm
+node "$CLI" comment 21571 "коротко о правке" --confirm   # или --body-file письмо.md
+node "$CLI" describe 21571 --body-file ограничение.md --confirm   # дописать абзац в описание
+node "$CLI" create Task --title "суть" --parent 21500 --estimate 4 --confirm
+node "$CLI" estimate 21571 --remaining 0 --confirm
 node "$CLI" time 21571 1.5 --confirm            # прибавить часы; --set чтобы заменить
 node "$CLI" link-pr 21571 <url PR> --confirm
 node "$CLI" attach 21571 после.png --discussion --comment "исправлено" --confirm
@@ -153,7 +158,7 @@ node "$CLI" state 21571 Resolved --assign "<тестер>" --confirm
 Без `--confirm` команда печатает, что собиралась изменить, и выходит с кодом 1 — ничего не
 отправляя. Адреса и путь к файлу с PAT — из `.env` (см. `.env.example`).
 
-Проверить CLI без сети: `node bin/test-volna-tfs.mjs` из корня «Волны» — 52 проверки на
+Проверить CLI без сети: `node bin/test-volna-tfs.mjs` из корня «Волны» — 121 проверка на
 поддельном клиенте.
 
 ## Локальная разработка самой «Волны»

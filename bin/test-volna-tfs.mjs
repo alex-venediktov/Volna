@@ -65,6 +65,61 @@ function fakeClient(workItem = {}, found = [], items = {}) {
       calls.push(["linkPullRequestArtifact", id, repo, prId, name]);
       return { url: `vstfs:///Git/PullRequestId/p%2Fr%2F${prId}`, repositoryId: "guid" };
     },
+    async comments(id) {
+      calls.push(["comments", id]);
+      return [
+        { by: "Иван Петров", date: "2026-07-01T10:00:00Z", html: "<p>первый</p>", text: "первый" },
+        { by: "Пётр Иванов", date: "2026-07-02T10:00:00Z", html: "<p>второй</p>", text: "второй" },
+      ];
+    },
+    async downloadAttachments(id) {
+      calls.push(["downloadAttachments", id]);
+      return [{ name: "снимок.png", data: Buffer.from("картинка") }];
+    },
+    async workItemTypeStates(type) {
+      calls.push(["workItemTypeStates", type]);
+      return [{ name: "New", category: "Proposed" }, { name: "Closed", category: "Completed" }];
+    },
+    async fieldAllowedValues(type, field) {
+      calls.push(["fieldAllowedValues", type, field]);
+      return ["Completed", "Deferred"];
+    },
+    async setDescription(id, html, opts) {
+      calls.push(["setDescription", id, html, opts]);
+      return { id, replaced: opts?.replace === true };
+    },
+    async setEstimate(id, values) {
+      calls.push(["setEstimate", id, values]);
+      return {
+        id,
+        "Microsoft.VSTS.Scheduling.OriginalEstimate": values.original,
+        "Microsoft.VSTS.Scheduling.RemainingWork": values.remaining,
+      };
+    },
+    async setTags(id, opts) {
+      calls.push(["setTags", id, opts]);
+      return { id, tags: ["Back", ...(opts.add ?? [])] };
+    },
+    async createChildTask(parentId, fields, type) {
+      calls.push(["createChildTask", parentId, fields, type]);
+      return { id: "4242", url: "http://tracker/_apis/wit/workItems/4242" };
+    },
+    async createWorkItem(type, ops) {
+      calls.push(["createWorkItem", type, ops]);
+      return { id: 4343, url: "http://tracker/_apis/wit/workItems/4343" };
+    },
+    async linkWorkItem(id, targetId, rel) {
+      calls.push(["linkWorkItem", id, targetId, rel]);
+      return { id };
+    },
+    async listPullRequests(repo, opts) {
+      calls.push(["listPullRequests", repo, opts]);
+      return [{
+        id: 88, title: "2001: суть", status: "active", mergeStatus: "succeeded",
+        source: "refs/heads/feature/2001_суть", target: "refs/heads/DEV",
+        repositoryId: "guid", repositoryName: repo, webUrl: "",
+      }];
+    },
   };
 }
 
@@ -225,6 +280,168 @@ const capture = () => {
   check("get: часы показаны", t.includes("списано 2.5"), t);
   check("get: связи запрошены с expand", client.calls.some(([m, , e]) => m === "getWorkItem" && e === true),
     JSON.stringify(client.calls));
+  check("get: обсуждение собрано из ревизий, а не из поля истории",
+    t.includes("## Обсуждение (2)") && t.includes("первый") && t.includes("второй"), t);
+  check("get: у комментария назван автор", t.includes("**Иван Петров**"), t);
+}
+
+// --- get: ревизии недоступны - остаётся то, что лежало в поле -----------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  client.comments = async () => { throw new Error("нет прав на ревизии"); };
+  const code = await run(["get", "2001"], { client, log: c.log, err: c.err });
+  check("get: отказ ревизий не роняет чтение задачи", code === 0, String(code));
+  check("get: при отказе ревизий показано поле истории",
+    c.text().includes("обсуждение: смотри вложение"), c.text());
+}
+
+// --- states: справочник процесса ----------------------------------------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["states", "Task"], { client, log: c.log, err: c.err });
+  const t = c.text();
+  check("states: код 0", code === 0, String(code));
+  check("states: состояния показаны", t.includes("New (Proposed)") && t.includes("Closed (Completed)"), t);
+  check("states: причины показаны", t.includes("Completed, Deferred"), t);
+  check("states: сказано, что свободный текст отклоняется", t.includes("свободный текст"), t);
+}
+
+// --- attachments: скачивание вложений -----------------------------------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const written = [];
+  const code = await run(["attachments", "2001", "--out", "каталог"],
+    { client, log: c.log, err: c.err, writeFile: (p, data) => written.push([p, data.length]) });
+  check("attachments: код 0", code === 0, String(code));
+  check("attachments: файл записан", written.length === 1 && /снимок\.png$/.test(written[0][0]),
+    JSON.stringify(written));
+  check("attachments: размер назван", c.text().includes("байт"), c.text());
+}
+
+// --- describe: описание дополняется, а не затирается --------------------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["describe", "2001", "Ограничение реализации. Причина.", "--confirm"],
+    { client, log: c.log, err: c.err });
+  const [, , html, opts] = client.calls.find(([m]) => m === "setDescription") ?? [];
+  check("describe: код 0", code === 0, String(code));
+  check("describe: по умолчанию дополняет", opts?.replace !== true, JSON.stringify(opts));
+  check("describe: markdown превращён в HTML", String(html).startsWith("<p>"), String(html));
+  check("describe: сказано, что описание дополнено", c.text().includes("дополнено"), c.text());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["describe", "2001", "Новый текст", "--replace", "--confirm"], { client, log: c.log, err: c.err });
+  const [, , , opts] = client.calls.find(([m]) => m === "setDescription") ?? [];
+  check("describe: с --replace заменяет целиком", opts?.replace === true, JSON.stringify(opts));
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["describe", "2001", "текст"], { client, log: c.log, err: c.err });
+  check("describe: без --confirm не пишет", code === 1 && !client.calls.length, String(code));
+  check("describe: намерение объяснено", c.errText().includes("дополнить описание задачи 2001"), c.errText());
+}
+
+// --- create: задача с родителем и часами --------------------------------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["create", "Task", "--title", "20311: разбор", "--parent", "2000",
+    "--estimate", "3", "--tags", "Back,Волна-1", "--confirm"], { client, log: c.log, err: c.err });
+  const [, parent, fields, type] = client.calls.find(([m]) => m === "createChildTask") ?? [];
+  check("create: код 0", code === 0, String(code));
+  check("create: тип и родитель", type === "Task" && parent === "2000", `${type} ${parent}`);
+  check("create: оценка попала в обе колонки часов",
+    fields?.["Microsoft.VSTS.Scheduling.OriginalEstimate"] === 3 &&
+    fields?.["Microsoft.VSTS.Scheduling.RemainingWork"] === 3, JSON.stringify(fields));
+  check("create: теги разделены точкой с запятой", fields?.["System.Tags"] === "Back; Волна-1",
+    JSON.stringify(fields?.["System.Tags"]));
+  check("create: номер новой задачи назван", c.text().includes("4242"), c.text());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["create", "Task", "--title", "без часов", "--confirm"], { client, log: c.log, err: c.err });
+  check("create: без родителя создаётся самостоятельная задача",
+    client.calls.some(([m]) => m === "createWorkItem"), JSON.stringify(client.calls));
+  check("create: про незаполненные часы предупредил", c.text().includes("Оценка не задана"), c.text());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["create", "Task", "--parent", "2000", "--confirm"], { client, log: c.log, err: c.err });
+  check("create: без заголовка ничего не создаётся", code === 1 && !client.calls.length, String(code));
+}
+
+// --- estimate, link, tag ------------------------------------------------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["estimate", "2001", "--original", "6", "--remaining", "0", "--confirm"],
+    { client, log: c.log, err: c.err });
+  const [, , values] = client.calls.find(([m]) => m === "setEstimate") ?? [];
+  check("estimate: код 0", code === 0, String(code));
+  check("estimate: оценка и остаток переданы числами",
+    values?.original === 6 && values?.remaining === 0, JSON.stringify(values));
+  check("estimate: нулевой остаток не потерян", c.text().includes("остаток 0"), c.text());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["estimate", "2001", "--confirm"], { client, log: c.log, err: c.err });
+  check("estimate: без значений ничего не пишет", code === 1 && !client.calls.length, String(code));
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["link", "2001", "9315", "--rel", "duplicate", "--confirm"], { client, log: c.log, err: c.err });
+  const [, id, target, rel] = client.calls.find(([m]) => m === "linkWorkItem") ?? [];
+  check("link: вид связи переведён в имя типа трекера",
+    id === "2001" && target === "9315" && rel === "System.LinkTypes.Duplicate-Forward", `${rel}`);
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["link", "2001", "9315", "--rel", "неизвестно", "--confirm"],
+    { client, log: c.log, err: c.err });
+  check("link: неизвестный вид связи отклонён", code === 1 && !client.calls.length, String(code));
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["tag", "2001", "--add", "Волна-1,ВтораяОчередь", "--confirm"], { client, log: c.log, err: c.err });
+  const [, , opts] = client.calls.find(([m]) => m === "setTags") ?? [];
+  check("tag: список разобран по запятой",
+    opts?.add?.length === 2 && opts.add[1] === "ВтораяОчередь", JSON.stringify(opts));
+  check("tag: итоговые теги показаны", c.text().includes("Back; Волна-1"), c.text());
+}
+
+// --- pr list ------------------------------------------------------------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["pr", "list", "MG_Back", "--source", "feature/2001_суть"],
+    { client, log: c.log, err: c.err });
+  const [, repo, opts] = client.calls.find(([m]) => m === "listPullRequests") ?? [];
+  check("pr list: чтение работает без --confirm", code === 0, String(code));
+  check("pr list: ветка и статус переданы",
+    repo === "MG_Back" && opts?.source === "feature/2001_суть" && opts?.status === "active",
+    JSON.stringify(opts));
+  check("pr list: номер и ветки показаны", c.text().includes("- 88 · active"), c.text());
 }
 
 // --- query: выборка списком ---------------------------------------------------
