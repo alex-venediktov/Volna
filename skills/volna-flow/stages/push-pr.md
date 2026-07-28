@@ -21,15 +21,17 @@
 
 ```
 volna-tfs create Task --title "<суть>" --parent <id бага> --estimate <часы> \
-                    [--tags A,B] [--body-file <файл>] [--field <ref>=<значение>] --confirm  задача-фикс
+                    [--tags A,B] [--body-file <файл>] [--field <ref>=<значение>]   задача-фикс
 volna-tfs pr list <репо> --source <ветка>   не создан ли PR на эту ветку раньше
 volna-tfs pr create <репо> <ветка> --title "<номер>: суть" --body-file <файл> \
-                    [--target <ветка>] [--work-item <номер>] --confirm
+                    [--target <ветка>] [--work-item <номер>]
 volna-tfs pr status <репо> <номер>          состояние: слияние, коммиты
-volna-tfs link-pr <id> <репо> <номер> --confirm   связь задача-PR, если PR уже создан
-volna-tfs link <id> <цель> [--rel related|duplicate] --confirm   связь между задачами
+volna-tfs link-pr <id> <репо> <номер>       связь задача-PR, если PR уже создан
+volna-tfs link <id> <цель> [--rel related|duplicate]   связь между задачами
 ```
 
+- флага подтверждения у команд нет: решение о необратимом даёт человек в разговоре, а
+  `--dry-run` печатает, что уйдёт в трекер, ничего не отправляя;
 - **описание — файлом** (`--body-file`), не аргументом: длинный текст с кириллицей в командной
   строке бьётся, а файл читается как UTF8;
 - `create` без `--estimate` заводит задачу без часов и об этом предупреждает: по конвенции

@@ -3,9 +3,10 @@
  * CLI над трекером (TFS / Azure DevOps Server) для «Волны». Обёртка вокруг lib/tfs-client.mjs:
  * читает адреса из .env рабочего репозитория, печатает компактный markdown для чтения моделью.
  *
- * ЛЮБАЯ запись требует флага --confirm, который ставит человек. Без него команда объясняет,
- * что именно она собиралась изменить, и выходит с кодом 1: смена статусов и комментарии в
- * трекере необратимы и видны команде.
+ * Запись выполняется сразу, отдельного флага подтверждения нет: решение о необратимом
+ * (смена статусов, комментарии, PR) принимает человек в разговоре. Посмотреть, что команда
+ * собиралась изменить, ничего не меняя, - флаг --dry-run. Прежний --confirm принимается и
+ * игнорируется, чтобы старые команды из .volna/project.md не ломались.
  *
  * Использование:
  *   volna-tfs check                        проверить доступ (для /volna:doctor)
@@ -28,7 +29,7 @@
  *   volna-tfs attach <id> <файл> [--discussion] [--comment <текст>]
  *   volna-tfs state <id> <состояние> [--assign <кому>] [--reason <причина>]
  *
- * Флаги: --confirm (обязателен для записи), --json (сырой ответ вместо markdown).
+ * Флаги: --dry-run (напечатать намерение и не менять ничего), --json (сырой ответ вместо markdown).
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -41,7 +42,7 @@ const WRITE_COMMANDS = new Set([
   "comment", "time", "link-pr", "attach", "state", "describe", "create", "estimate", "link", "tag",
 ]);
 
-/** Пишет ли команда в трекер: у составной `pr` пишет только `create`, остальное чтение. */
+/** Пишет ли команда в трекер: нужно для --dry-run; у составной `pr` пишет только `create`. */
 function isWriteCommand(command, args) {
   if (command === "pr") return args[0] === "create";
   return WRITE_COMMANDS.has(command);
@@ -89,10 +90,10 @@ export async function run(argv, deps = {}) {
     return command ? 0 : 1;
   }
 
-  if (isWriteCommand(command, args) && !flags.confirm) {
+  if (isWriteCommand(command, args) && flags["dry-run"]) {
     err(describeIntent(command, args, flags));
-    err("Запись в трекер не выполнена: нет флага --confirm. Его ставит человек, а не агент.");
-    return 1;
+    err("Это --dry-run: в трекер ничего не отправлено.");
+    return 0;
   }
 
   let client;
@@ -300,13 +301,13 @@ function toWiql(text) {
   return `SELECT [System.Id] FROM WorkItems WHERE ${text} ORDER BY [System.Id] DESC`;
 }
 
-// -- команды записи (только с --confirm) --------------------------------------
+// -- команды записи -----------------------------------------------------------
 
 async function cmdComment(client, args, flags, log, err, readFile) {
   const id = args[0];
   const text = bodyText(args.slice(1).join(" "), flags, readFile);
   if (!id || !text) {
-    err("Нужны id и текст: volna-tfs comment <id> <текст> --confirm (или --body-file <файл>)");
+    err("Нужны id и текст: volna-tfs comment <id> <текст> (или --body-file <файл>)");
     return 1;
   }
   await client.addComment(id, markdownToTfsHtml(text));
@@ -323,7 +324,7 @@ async function cmdDescribe(client, args, flags, log, err, readFile) {
   const id = args[0];
   const text = bodyText(args.slice(1).join(" "), flags, readFile);
   if (!id || !text) {
-    err("Нужны id и текст: volna-tfs describe <id> --body-file <файл> --confirm [--replace]");
+    err("Нужны id и текст: volna-tfs describe <id> --body-file <файл> [--replace]");
     return 1;
   }
   const res = await client.setDescription(id, markdownToTfsHtml(text), { replace: flags.replace === true });
@@ -339,7 +340,7 @@ async function cmdCreate(client, args, flags, log, err, readFile, env) {
   const type = args[0] || "Task";
   const title = String(flags.title ?? "").trim();
   if (!title) {
-    err("Нужен заголовок: volna-tfs create <тип> --title <заголовок> [--parent <id>] --confirm");
+    err("Нужен заголовок: volna-tfs create <тип> --title <заголовок> [--parent <id>]");
     return 1;
   }
 
@@ -409,7 +410,7 @@ async function cmdEstimate(client, args, flags, log, err) {
   const original = numberFlag(flags.original);
   const remaining = numberFlag(flags.remaining);
   if (!id || (original == null && remaining == null)) {
-    err("Нужны id и хотя бы одно значение: volna-tfs estimate <id> [--original N] [--remaining M] --confirm");
+    err("Нужны id и хотя бы одно значение: volna-tfs estimate <id> [--original N] [--remaining M]");
     return 1;
   }
   const res = await client.setEstimate(id, { original, remaining });
@@ -434,7 +435,7 @@ async function cmdLink(client, args, flags, log, err) {
   const kind = String(flags.rel ?? "related").toLowerCase();
   const rel = REL_BY_NAME[kind];
   if (!id || !target || !rel) {
-    err("Нужны две задачи и вид связи: volna-tfs link <id> <цель> [--rel related|parent|child|duplicate] --confirm");
+    err("Нужны две задачи и вид связи: volna-tfs link <id> <цель> [--rel related|parent|child|duplicate]");
     return 1;
   }
   await client.linkWorkItem(id, target, rel);
@@ -448,7 +449,7 @@ async function cmdTag(client, args, flags, log, err) {
   const add = splitList(flags.add);
   const remove = splitList(flags.remove);
   if (!id || (!add.length && !remove.length)) {
-    err("Нужны id и теги: volna-tfs tag <id> --add A,B [--remove C] --confirm");
+    err("Нужны id и теги: volna-tfs tag <id> --add A,B [--remove C]");
     return 1;
   }
   const res = await client.setTags(id, { add, remove });
@@ -478,7 +479,7 @@ async function cmdTime(client, args, flags, log, err) {
   const id = args[0];
   const hours = Number(String(args[1] ?? "").replace(",", "."));
   if (!id || !Number.isFinite(hours)) {
-    err("Нужны id и часы: volna-tfs time <id> <часы> [--set] --confirm");
+    err("Нужны id и часы: volna-tfs time <id> <часы> [--set]");
     return 1;
   }
   const FIELD = "Microsoft.VSTS.Scheduling.CompletedWork";
@@ -493,7 +494,7 @@ async function cmdTime(client, args, flags, log, err) {
   return 0;
 }
 
-/** Составная команда pr: create пишет (нужен --confirm), status только читает. */
+/** Составная команда pr: create пишет, list и status только читают. */
 async function cmdPr(client, args, flags, log, err, readFile, env) {
   switch (args[0]) {
     case "create": return await cmdPrCreate(client, args.slice(1), flags, log, err, readFile, env);
@@ -514,7 +515,7 @@ async function cmdPrCreate(client, args, flags, log, err, readFile, env) {
   const repo = args[0];
   const source = args[1];
   if (!repo || !source) {
-    err("Нужны репозиторий и ветка: volna-tfs pr create <репо> <ветка> --title <заголовок> --confirm");
+    err("Нужны репозиторий и ветка: volna-tfs pr create <репо> <ветка> --title <заголовок>");
     return 1;
   }
   const title = String(flags.title ?? "").trim();
@@ -548,7 +549,7 @@ async function cmdPrCreate(client, args, flags, log, err, readFile, env) {
     await client.linkPullRequestArtifact(workItem, repo, pr.id, flags.name || "Pull Request");
     log(`Задача ${workItem}: PR ${pr.id} привязан связью Pull Request.`);
   } else {
-    log(`Задача не привязана: volna-tfs link-pr <id> ${repo} ${pr.id} --confirm`);
+    log(`Задача не привязана: volna-tfs link-pr <id> ${repo} ${pr.id}`);
   }
   return 0;
 }
@@ -611,7 +612,7 @@ async function cmdPrStatus(client, args, flags, log, err) {
 async function cmdLinkPr(client, args, flags, log, err) {
   const id = args[0];
   if (!id || !args[1]) {
-    err("Нужны id и PR: volna-tfs link-pr <id> <репо> <номер> --confirm (или <id> <url>)");
+    err("Нужны id и PR: volna-tfs link-pr <id> <репо> <номер> (или <id> <url>)");
     return 1;
   }
   const name = flags.title || flags.name || "Pull Request";
@@ -640,7 +641,7 @@ async function cmdAttach(client, args, flags, log, err, readFile) {
   const id = args[0];
   const file = args[1];
   if (!id || !file) {
-    err("Нужны id и файл: volna-tfs attach <id> <файл> [--discussion] --confirm");
+    err("Нужны id и файл: volna-tfs attach <id> <файл> [--discussion]");
     return 1;
   }
   const bytes = readFile(file);
@@ -657,7 +658,7 @@ async function cmdState(client, args, flags, log, err) {
   const id = args[0];
   const state = args[1];
   if (!id || !state) {
-    err("Нужны id и состояние: volna-tfs state <id> <состояние> [--assign <кому>] --confirm");
+    err("Нужны id и состояние: volna-tfs state <id> <состояние> [--assign <кому>]");
     return 1;
   }
   const fields = { "System.State": state };
@@ -693,14 +694,14 @@ async function explainStateFailure(client, id, state, flags, error, log, err) {
   if (states.length) err(`${type}: состояния - ${states.map((s) => s.name).join(", ")}`);
   if (reasons.length) err(`${type}: причины - ${reasons.join(", ")}`);
   err(`Повтори без --reason (подставится значение по умолчанию) или со значением из списка:`);
-  err(`volna-tfs state ${id} ${state} --confirm`);
+  err(`volna-tfs state ${id} ${state}`);
   err("Состояние НЕ изменено: сервер откатывает весь запрос, а не отдельное поле.");
   return 1;
 }
 
 // -- служебное ----------------------------------------------------------------
 
-/** Что команда собиралась изменить - печатается вместо записи, когда нет --confirm. */
+/** Что команда собиралась изменить - печатается вместо записи при --dry-run. */
 function describeIntent(command, args, flags) {
   const id = args[0] ?? "<id>";
   switch (command) {
@@ -733,31 +734,32 @@ function describeIntent(command, args, flags) {
 
 function usage() {
   return [
-    "volna-tfs - CLI над трекером для «Волны». Запись только с --confirm.",
+    "volna-tfs - CLI над трекером для «Волны». Запись идёт сразу; --dry-run печатает намерение.",
     "",
     "  check                                   проверить доступ",
     "  get <id> [--json]                       задача: поля, постановка, обсуждение, связи, вложения",
     "  query <запрос> [--top N] [--ids] [--json]   выборка WIQL; можно только условие после WHERE",
     "  states <тип> [--json]                   состояния и причины типа задачи",
     "  attachments <id> [--out каталог]        скачать вложения задачи",
-    "  comment <id> <текст> --confirm          комментарий в обсуждение (или --body-file файл)",
-    "  describe <id> --body-file файл --confirm   дописать абзац в описание ([--replace])",
+    "  comment <id> <текст>                    комментарий в обсуждение (или --body-file файл)",
+    "  describe <id> --body-file файл          дописать абзац в описание ([--replace])",
     "  create <тип> --title T [--parent id] [--estimate часы] [--tags A,B]",
     "         [--assign кто] [--area путь] [--body-file файл]",
-    "         [--field ref=значение ...] --confirm   завести задачу",
+    "         [--field ref=значение ...]       завести задачу",
     "         обязательные поля процесса - флагом --field (повторяемый) или TFS_CREATE_FIELDS в .env",
-    "  time <id> <часы> [--set] --confirm      списать часы (по умолчанию прибавить)",
-    "  estimate <id> [--original N] [--remaining M] --confirm   оценка и остаток работ",
-    "  link <id> <цель> [--rel related|parent|child|duplicate] --confirm   связь задач",
-    "  tag <id> [--add A,B] [--remove C] --confirm   теги задачи",
+    "  time <id> <часы> [--set]                списать часы (по умолчанию прибавить)",
+    "  estimate <id> [--original N] [--remaining M]   оценка и остаток работ",
+    "  link <id> <цель> [--rel related|parent|child|duplicate]   связь задач",
+    "  tag <id> [--add A,B] [--remove C]       теги задачи",
     "  pr create <репо> <ветка> --title T [--target ветка] [--body-file файл]",
-    "            [--work-item id] --confirm   создать pull request",
+    "            [--work-item id]              создать pull request",
     "  pr list <репо> [--source ветка] [--status all] [--json]   pull request'ы репозитория",
     "  pr status <репо> <номер> [--json]       состояние PR: слияние, коммиты",
-    "  link-pr <id> <репо> <номер> --confirm   нативная связь задача-PR (или <id> <url>)",
-    "  attach <id> <файл> [--discussion] [--comment T] --confirm",
-    "  state <id> <состояние> [--assign кто] [--reason почему] --confirm",
+    "  link-pr <id> <репо> <номер>             нативная связь задача-PR (или <id> <url>)",
+    "  attach <id> <файл> [--discussion] [--comment T]",
+    "  state <id> <состояние> [--assign кто] [--reason почему]",
     "",
+    "Любая пишущая команда с --dry-run печатает, что собиралась изменить, и не отправляет ничего.",
     "Адреса, целевая ветка PR (TFS_TARGET_BRANCH) и путь к файлу PAT - в .env рабочего",
     "репозитория (шаблон .env.example).",
   ].join("\n");

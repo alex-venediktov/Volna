@@ -142,23 +142,26 @@ node "$CLI" query "[System.State]='New'" --ids                          # тол
 Удобно один раз записать эту команду в `.volna/project.md` (раздел «Команды») — тогда этапы
 берут её оттуда, а не вычисляют путь каждый раз.
 
-Запись требует `--confirm`, и ставит его **человек**:
+Запись выполняется сразу, отдельного флага подтверждения нет — решение о необратимом принимает
+человек в разговоре:
 
 ```bash
-node "$CLI" comment 21571 "коротко о правке" --confirm   # или --body-file письмо.md
-node "$CLI" describe 21571 --body-file ограничение.md --confirm   # дописать абзац в описание
-node "$CLI" create Task --title "суть" --parent 21571 --estimate 4 --confirm
-node "$CLI" estimate 21571 --remaining 0 --confirm
-node "$CLI" time 21571 1.5 --confirm            # прибавить часы; --set чтобы заменить
-node "$CLI" link-pr 21571 <url PR> --confirm
-node "$CLI" attach 21571 после.png --discussion --comment "исправлено" --confirm
-node "$CLI" state 21571 Resolved --assign "<тестер>" --confirm
+node "$CLI" comment 21571 "коротко о правке"    # или --body-file письмо.md
+node "$CLI" describe 21571 --body-file ограничение.md   # дописать абзац в описание
+node "$CLI" create Task --title "суть" --parent 21571 --estimate 4
+node "$CLI" estimate 21571 --remaining 0
+node "$CLI" time 21571 1.5                      # прибавить часы; --set чтобы заменить
+node "$CLI" link-pr 21571 <url PR>
+node "$CLI" attach 21571 после.png --discussion --comment "исправлено"
+node "$CLI" state 21571 Resolved --assign "<тестер>"
 ```
 
-Без `--confirm` команда печатает, что собиралась изменить, и выходит с кодом 1 — ничего не
-отправляя. Адреса и путь к файлу с PAT — из `.env` (см. `.env.example`).
+Посмотреть, что уйдёт в трекер, ничего не меняя — тот же вызов с `--dry-run`: команда печатает,
+что собиралась изменить, и выходит с кодом 0. Прежний `--confirm` принимается и игнорируется,
+так что записанные раньше команды не ломаются. Адреса и путь к файлу с PAT — из `.env`
+(см. `.env.example`).
 
-Проверить CLI без сети: `node bin/test-volna-tfs.mjs` из корня «Волны» — 121 проверка на
+Проверить CLI без сети: `node bin/test-volna-tfs.mjs` из корня «Волны» — 140 проверок на
 поддельном клиенте.
 
 ## Локальная разработка самой «Волны»

@@ -1,6 +1,7 @@
 /**
  * Проверка CLI над трекером без сети: клиент подменяется заглушкой, которая записывает вызовы.
- * Главное, что проверяется: без --confirm запись НЕ происходит ни при каких аргументах.
+ * Главное, что проверяется: запись идёт без флага подтверждения, а --dry-run не отправляет
+ * в трекер ничего.
  *
  * Запуск: node bin/test-volna-tfs.mjs
  */
@@ -149,10 +150,19 @@ const capture = () => {
 
 // --- разбор аргументов --------------------------------------------------------
 {
-  const p = parseArgs(["comment", "2001", "готово", "--confirm", "--assign", "Иван Петров"]);
+  const p = parseArgs(["comment", "2001", "готово", "--dry-run", "--assign", "Иван Петров"]);
   check("parseArgs: команда и позиционные", p.command === "comment" && p.args[0] === "2001", JSON.stringify(p));
   check("parseArgs: флаг со значением", p.flags.assign === "Иван Петров", JSON.stringify(p.flags));
-  check("parseArgs: булев флаг", p.flags.confirm === true, JSON.stringify(p.flags));
+  check("parseArgs: булев флаг", p.flags["dry-run"] === true, JSON.stringify(p.flags));
+}
+
+// прежний --confirm больше ничего не требует и не ломает старые команды
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["comment", "2001", "текст", "--confirm"], { client, log: c.log, err: c.err });
+  check("совместимость: старый --confirm принимается и игнорируется",
+    code === 0 && client.calls.some(([m]) => m === "addComment"), `code=${code}`);
 }
 
 // --- .env --------------------------------------------------------------------
@@ -244,23 +254,34 @@ const capture = () => {
   check("клиент: список репозиториев спрашивается один раз", repoCalls === 1, String(repoCalls));
 }
 
-// --- запись без --confirm НЕ выполняется -------------------------------------
+// --- запись идёт без флага подтверждения, --dry-run не пишет ------------------
+const WRITE_CASES = [
+  ["comment", "2001", "текст"],
+  ["time", "2001", "1.5"],
+  ["link-pr", "2001", "http://pr/1"],
+  ["state", "2001", "Resolved"],
+  ["attach", "2001", "shot.png"],
+  ["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть", "--target", "main"],
+];
+
 {
-  const cases = [
-    ["comment", "2001", "текст"],
-    ["time", "2001", "1.5"],
-    ["link-pr", "2001", "http://pr/1"],
-    ["state", "2001", "Resolved"],
-    ["attach", "2001", "shot.png"],
-    ["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть", "--target", "main"],
-  ];
-  for (const argv of cases) {
+  for (const argv of WRITE_CASES) {
     const c = capture();
     const client = fakeClient(WI);
-    const code = await run(argv, { client, log: c.log, err: c.err });
-    check(`«${argv[0]}» без --confirm: код 1 и ни одного вызова`,
-      code === 1 && client.calls.length === 0, `code=${code} calls=${client.calls.length}`);
-    check(`«${argv[0]}» без --confirm: сказано, что собирался сделать`,
+    const code = await run(argv, { client, log: c.log, err: c.err, readFile: () => Buffer.from("x") });
+    check(`«${argv[0]}» без флагов: код 0 и запись выполнена`,
+      code === 0 && client.calls.length > 0, `code=${code} calls=${client.calls.length}`);
+  }
+}
+
+{
+  for (const argv of WRITE_CASES) {
+    const c = capture();
+    const client = fakeClient(WI);
+    const code = await run([...argv, "--dry-run"], { client, log: c.log, err: c.err });
+    check(`«${argv[0]}» с --dry-run: код 0 и ни одного вызова`,
+      code === 0 && client.calls.length === 0, `code=${code} calls=${client.calls.length}`);
+    check(`«${argv[0]}» с --dry-run: сказано, что собирался сделать`,
       /Собирался/.test(c.errText()), c.errText());
   }
 }
@@ -325,7 +346,7 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["describe", "2001", "Ограничение реализации. Причина.", "--confirm"],
+  const code = await run(["describe", "2001", "Ограничение реализации. Причина."],
     { client, log: c.log, err: c.err });
   const [, , html, opts] = client.calls.find(([m]) => m === "setDescription") ?? [];
   check("describe: код 0", code === 0, String(code));
@@ -337,7 +358,7 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  await run(["describe", "2001", "Новый текст", "--replace", "--confirm"], { client, log: c.log, err: c.err });
+  await run(["describe", "2001", "Новый текст", "--replace"], { client, log: c.log, err: c.err });
   const [, , , opts] = client.calls.find(([m]) => m === "setDescription") ?? [];
   check("describe: с --replace заменяет целиком", opts?.replace === true, JSON.stringify(opts));
 }
@@ -345,8 +366,8 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["describe", "2001", "текст"], { client, log: c.log, err: c.err });
-  check("describe: без --confirm не пишет", code === 1 && !client.calls.length, String(code));
+  const code = await run(["describe", "2001", "текст", "--dry-run"], { client, log: c.log, err: c.err });
+  check("describe: с --dry-run не пишет", code === 0 && !client.calls.length, String(code));
   check("describe: намерение объяснено", c.errText().includes("дополнить описание задачи 2001"), c.errText());
 }
 
@@ -355,7 +376,7 @@ const capture = () => {
   const c = capture();
   const client = fakeClient(WI);
   const code = await run(["create", "Task", "--title", "2100: суть правки", "--parent", "2000",
-    "--estimate", "3", "--tags", "первый,второй тег", "--confirm"], { client, log: c.log, err: c.err });
+    "--estimate", "3", "--tags", "первый,второй тег"], { client, log: c.log, err: c.err });
   const [, parent, fields, type] = client.calls.find(([m]) => m === "createChildTask") ?? [];
   check("create: код 0", code === 0, String(code));
   check("create: тип и родитель", type === "Task" && parent === "2000", `${type} ${parent}`);
@@ -370,7 +391,7 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  await run(["create", "Task", "--title", "без часов", "--confirm"], { client, log: c.log, err: c.err });
+  await run(["create", "Task", "--title", "без часов"], { client, log: c.log, err: c.err });
   check("create: без родителя создаётся самостоятельная задача",
     client.calls.some(([m]) => m === "createWorkItem"), JSON.stringify(client.calls));
   check("create: про незаполненные часы предупредил", c.text().includes("Оценка не задана"), c.text());
@@ -379,7 +400,7 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["create", "Task", "--parent", "2000", "--confirm"], { client, log: c.log, err: c.err });
+  const code = await run(["create", "Task", "--parent", "2000"], { client, log: c.log, err: c.err });
   check("create: без заголовка ничего не создаётся", code === 1 && !client.calls.length, String(code));
 }
 
@@ -398,7 +419,7 @@ const capture = () => {
   const c = capture();
   const client = fakeClient(WI);
   await run(["create", "Task", "--title", "суть", "--field", "some.field=из флага",
-    "--field", "other.field=7", "--confirm"],
+    "--field", "other.field=7"],
     { client, log: c.log, err: c.err, env: { TFS_CREATE_FIELDS: "some.field=из env; env.only=да" } });
   const [, , ops] = client.calls.find(([m]) => m === "createWorkItem") ?? [];
   const value = (ref) => ops?.find((o) => o.path === `/fields/${ref}`)?.value;
@@ -410,9 +431,9 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  await run(["create", "Task", "--title", "суть", "--field", "some.field=значение"],
+  await run(["create", "Task", "--title", "суть", "--field", "some.field=значение", "--dry-run"],
     { client, log: c.log, err: c.err });
-  check("create: без --confirm поля процесса названы в намерении",
+  check("create: при --dry-run поля процесса названы в намерении",
     c.errText().includes("some.field=значение") && !client.calls.length, c.errText());
 }
 
@@ -444,7 +465,7 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["estimate", "2001", "--original", "6", "--remaining", "0", "--confirm"],
+  const code = await run(["estimate", "2001", "--original", "6", "--remaining", "0"],
     { client, log: c.log, err: c.err });
   const [, , values] = client.calls.find(([m]) => m === "setEstimate") ?? [];
   check("estimate: код 0", code === 0, String(code));
@@ -456,14 +477,14 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["estimate", "2001", "--confirm"], { client, log: c.log, err: c.err });
+  const code = await run(["estimate", "2001"], { client, log: c.log, err: c.err });
   check("estimate: без значений ничего не пишет", code === 1 && !client.calls.length, String(code));
 }
 
 {
   const c = capture();
   const client = fakeClient(WI);
-  await run(["link", "2001", "2002", "--rel", "duplicate", "--confirm"], { client, log: c.log, err: c.err });
+  await run(["link", "2001", "2002", "--rel", "duplicate"], { client, log: c.log, err: c.err });
   const [, id, target, rel] = client.calls.find(([m]) => m === "linkWorkItem") ?? [];
   check("link: вид связи переведён в имя типа трекера",
     id === "2001" && target === "2002" && rel === "System.LinkTypes.Duplicate-Forward", `${rel}`);
@@ -472,7 +493,7 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["link", "2001", "2002", "--rel", "неизвестно", "--confirm"],
+  const code = await run(["link", "2001", "2002", "--rel", "неизвестно"],
     { client, log: c.log, err: c.err });
   check("link: неизвестный вид связи отклонён", code === 1 && !client.calls.length, String(code));
 }
@@ -480,7 +501,7 @@ const capture = () => {
 {
   const c = capture();
   const client = fakeClient(WI);
-  await run(["tag", "2001", "--add", "первый,второй тег", "--confirm"], { client, log: c.log, err: c.err });
+  await run(["tag", "2001", "--add", "первый,второй тег"], { client, log: c.log, err: c.err });
   const [, , opts] = client.calls.find(([m]) => m === "setTags") ?? [];
   check("tag: список разобран по запятой",
     opts?.add?.length === 2 && opts.add[1] === "второй тег", JSON.stringify(opts));
@@ -494,7 +515,7 @@ const capture = () => {
   const code = await run(["pr", "list", "frontend", "--source", "feature/2001_суть"],
     { client, log: c.log, err: c.err });
   const [, repo, opts] = client.calls.find(([m]) => m === "listPullRequests") ?? [];
-  check("pr list: чтение работает без --confirm", code === 0, String(code));
+  check("pr list: чтение работает и без флагов", code === 0, String(code));
   check("pr list: ветка и статус переданы",
     repo === "frontend" && opts?.source === "feature/2001_суть" && opts?.status === "active",
     JSON.stringify(opts));
@@ -574,7 +595,7 @@ const FOUND_FIELDS = {
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["comment", "2001", "- правка в модуле\n- тест добавлен", "--confirm"],
+  const code = await run(["comment", "2001", "- правка в модуле\n- тест добавлен"],
     { client, log: c.log, err: c.err });
   const [, , html] = client.calls.find(([m]) => m === "addComment") ?? [];
   check("comment: код 0", code === 0, String(code));
@@ -585,14 +606,14 @@ const FOUND_FIELDS = {
 {
   const c = capture();
   const client = fakeClient(WI);
-  await run(["time", "2001", "1.5", "--confirm"], { client, log: c.log, err: c.err });
+  await run(["time", "2001", "1.5"], { client, log: c.log, err: c.err });
   const ops = client.calls.find(([m]) => m === "updateWorkItem")?.[2] ?? [];
   check("time: прибавляет к текущим часам (2.5 + 1.5 = 4)",
     ops.some((o) => o.path.endsWith("CompletedWork") && o.value === 4), JSON.stringify(ops));
 
   const c2 = capture();
   const client2 = fakeClient(WI);
-  await run(["time", "2001", "1.5", "--set", "--confirm"], { client: client2, log: c2.log, err: c2.err });
+  await run(["time", "2001", "1.5", "--set"], { client: client2, log: c2.log, err: c2.err });
   const ops2 = client2.calls.find(([m]) => m === "updateWorkItem")?.[2] ?? [];
   check("time --set: заменяет значение", ops2.some((o) => o.value === 1.5), JSON.stringify(ops2));
   check("time --set: текущее значение не читалось",
@@ -604,7 +625,7 @@ const FOUND_FIELDS = {
   const c = capture();
   const client = fakeClient(WI);
   const code = await run(["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть правки",
-    "--target", "main", "--work-item", "2001", "--confirm"], { client, log: c.log, err: c.err });
+    "--target", "main", "--work-item", "2001"], { client, log: c.log, err: c.err });
   const [, repo, opts] = client.calls.find(([m]) => m === "createPullRequest") ?? [];
   const link = client.calls.find(([m]) => m === "linkPullRequestArtifact");
   const t = c.text();
@@ -623,7 +644,7 @@ const FOUND_FIELDS = {
   const c = capture();
   const client = fakeClient(WI);
   const code = await run(["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть",
-    "--body-file", "D:/tmp/описание.md", "--confirm"],
+    "--body-file", "D:/tmp/описание.md"],
     { client, log: c.log, err: c.err, env: { TFS_TARGET_BRANCH: "main" },
       readFile: () => Buffer.from("Порт по эталону, строки 15832-16246.", "utf8") });
   const [, , opts] = client.calls.find(([m]) => m === "createPullRequest") ?? [];
@@ -638,14 +659,14 @@ const FOUND_FIELDS = {
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть", "--confirm"],
+  const code = await run(["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть"],
     { client, log: c.log, err: c.err, env: {} });
   check("pr create: без целевой ветки ничего не создаётся",
     code === 1 && client.calls.length === 0 && /TFS_TARGET_BRANCH/.test(c.errText()), c.errText());
 
   const c2 = capture();
   const client2 = fakeClient(WI);
-  const code2 = await run(["pr", "create", "backend", "feature/2001_суть", "--target", "main", "--confirm"],
+  const code2 = await run(["pr", "create", "backend", "feature/2001_суть", "--target", "main"],
     { client: client2, log: c2.log, err: c2.err, env: {} });
   check("pr create: без заголовка ничего не создаётся",
     code2 === 1 && client2.calls.length === 0 && /заголовок/.test(c2.errText()), c2.errText());
@@ -663,7 +684,7 @@ const FOUND_FIELDS = {
   const client = fakeClient(WI);
   const code = await run(["pr", "status", "backend", "77"], { client, log: c.log, err: c.err });
   const t = c.text();
-  check("pr status: чтение работает без --confirm", code === 0 && t.includes("# PR 77"), t);
+  check("pr status: чтение работает и без флагов", code === 0 && t.includes("# PR 77"), t);
   check("pr status: слияние и ветки показаны",
     t.includes("слияние: succeeded") && t.includes("refs/heads/main"), t);
   check("pr status: при нескольких коммитах предупредил про чужие изменения",
@@ -674,14 +695,14 @@ const FOUND_FIELDS = {
 {
   const c = capture();
   const client = fakeClient(WI);
-  await run(["link-pr", "2001", "backend", "77", "--confirm"], { client, log: c.log, err: c.err });
+  await run(["link-pr", "2001", "backend", "77"], { client, log: c.log, err: c.err });
   const link = client.calls.find(([m]) => m === "linkPullRequestArtifact");
   check("link-pr: форма «репозиторий номер» даёт нативную связь",
     link?.[1] === "2001" && link?.[2] === "backend" && link?.[3] === "77", JSON.stringify(client.calls));
 
   const cWeb = capture();
   const clientWeb = fakeClient(WI);
-  await run(["link-pr", "2001", "http://tracker/Проект/_git/frontend/pullrequest/103", "--confirm"],
+  await run(["link-pr", "2001", "http://tracker/Проект/_git/frontend/pullrequest/103"],
     { client: clientWeb, log: cWeb.log, err: cWeb.err });
   const linkWeb = clientWeb.calls.find(([m]) => m === "linkPullRequestArtifact");
   check("link-pr: репозиторий и номер разобраны из веб-ссылки",
@@ -689,7 +710,7 @@ const FOUND_FIELDS = {
 
   const cOld = capture();
   const clientOld = fakeClient(WI);
-  await run(["link-pr", "2001", "http://tracker/pr/11", "--title", "PR 11", "--confirm"],
+  await run(["link-pr", "2001", "http://tracker/pr/11", "--title", "PR 11"],
     { client: clientOld, log: cOld.log, err: cOld.err });
   const ops = clientOld.calls.find(([m]) => m === "updateWorkItem")?.[2] ?? [];
   const rel = ops[0]?.value ?? {};
@@ -700,7 +721,7 @@ const FOUND_FIELDS = {
 
   const c2 = capture();
   const client2 = fakeClient(WI);
-  await run(["state", "2001", "Resolved", "--assign", "Тестер", "--reason", "Fixed", "--confirm"],
+  await run(["state", "2001", "Resolved", "--assign", "Тестер", "--reason", "Fixed"],
     { client: client2, log: c2.log, err: c2.err });
   const ops2 = client2.calls.find(([m]) => m === "updateWorkItem")?.[2] ?? [];
   const paths = ops2.map((o) => o.path);
@@ -714,7 +735,7 @@ const FOUND_FIELDS = {
 {
   const c = capture();
   const client = fakeClient(WI);
-  const code = await run(["attach", "2001", "D:/tmp/после.png", "--discussion", "--comment", "исправлено", "--confirm"],
+  const code = await run(["attach", "2001", "D:/tmp/после.png", "--discussion", "--comment", "исправлено"],
     { client, log: c.log, err: c.err, readFile: () => Buffer.from([1, 2, 3]) });
   const call = client.calls.find(([m]) => m === "addAttachment");
   check("attach: код 0", code === 0, String(code));
@@ -735,7 +756,7 @@ const FOUND_FIELDS = {
 
   const c3 = capture();
   const code3 = await run([], { client: fakeClient(), log: c3.log, err: c3.err });
-  check("без аргументов: показал использование", code3 === 1 && /Запись только с --confirm/.test(c3.text()), c3.text());
+  check("без аргументов: показал использование", code3 === 1 && /--dry-run печатает намерение/.test(c3.text()), c3.text());
 
   const c4 = capture();
   const client4 = fakeClient(WI);
