@@ -11,8 +11,8 @@ stage: intake
 stages_done: []
 skipped: []
 open: []
-started: <YYYY-MM-DDTHH:MM>
-updated: <YYYY-MM-DDTHH:MM>
+started: <YYYY-MM-DDTHH:MM>    # локальное время машины: из строки «сейчас» в шапке «Волны»
+updated: <YYYY-MM-DDTHH:MM>    # не UTC и не на глаз - иначе расчёт часов на close врёт
 ---
 
 # <ID> — <заголовок>

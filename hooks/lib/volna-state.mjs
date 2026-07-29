@@ -177,10 +177,10 @@ export function loadActive(cwd, { respectMute = true } = {}) {
   return { volnaDir, task: state.active, muted: state.muted, ...journal };
 }
 
-/** Порядок этапов флоу - для позиции k/13 в шапке. */
+/** Порядок этапов флоу - для позиции k/14 в шапке. */
 export const STAGES = [
   "intake", "analyze", "spec", "plan", "implement", "advocate", "fixtures",
-  "unit-tests", "visual", "commit", "push-pr", "close", "capture",
+  "unit-tests", "visual", "commit", "push-pr", "close", "cleanup", "capture",
 ];
 
 /** Позиция этапа в флоу, 1-based; 0 - этап неизвестен. */
@@ -193,6 +193,19 @@ export function stagePosition(stage) {
 export function minutesSince(mtimeMs, now = Date.now()) {
   if (!mtimeMs) return null;
   return Math.max(0, Math.round((now - mtimeMs) / 60000));
+}
+
+/**
+ * Текущее время машины как «YYYY-MM-DD HH:MM» - формат метки журнала.
+ * Локальное, не UTC: `toISOString` дал бы сдвиг на зону, и метки журнала
+ * разошлись бы с mtime файла, по которому считается «журнал не дописан N мин».
+ * Модель текущего времени не знает - в её промпте только дата, - поэтому метку
+ * ей отдают hooks: иначе время в журнале приходится угадывать.
+ */
+export function localStamp(now = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ` +
+         `${p(now.getHours())}:${p(now.getMinutes())}`;
 }
 
 /** Список открытых пунктов, обрезанный до limit и до разумной длины строки. */

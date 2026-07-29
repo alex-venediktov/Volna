@@ -73,6 +73,15 @@ function check(name, cond, detail = "") {
 const ctx = (r) => {
   try { return JSON.parse(r.out)?.hookSpecificOutput?.additionalContext ?? ""; } catch { return ""; }
 };
+
+/**
+ * Ожидаемое начало метки времени: «YYYY-MM-DD HH:» по локальным часам.
+ * Минуты не сверяем - между запуском hook'а и проверкой они могут перевалить.
+ */
+function localHourStamp(now = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}:`;
+}
 const decision = (r) => {
   try { return JSON.parse(r.out)?.hookSpecificOutput ?? {}; } catch { return {}; }
 };
@@ -101,6 +110,7 @@ write("implement");
   check("SessionStart: многострочный подпункт склеен, а не обрезан",
     c.includes("прогнать тесты по матрице зеркал"), c);
   check("SessionStart: резюме свежее - без предупреждения", !c.includes("отстало"), c);
+  check("SessionStart: время машины отдано модели", c.includes(`Сейчас: ${localHourStamp()}`), c);
 }
 
 // --- 2a. Секция «Состояние»: отсутствует и отстала от лога ---------------------
@@ -141,9 +151,11 @@ write("implement");
     prompt: "продолжаем правку" });
   const c = ctx(r);
   const lines = c.split("\n").length;
-  check("шапка: задача, этап, позиция", c.includes("21571") && c.includes("implement") && c.includes("5/13"), c);
+  check("шапка: задача, этап, позиция", c.includes("21571") && c.includes("implement") && c.includes("5/14"), c);
   check(`шапка: бюджет <=20 строк (сейчас ${lines})`, lines <= 20, c);
   check("шапка: не больше 3 открытых пунктов", (c.match(/открыто:/g) || []).length <= 3, c);
+  // Метки журнала ставит модель по этой строке: UTC вместо локального времени уехал бы на зону.
+  check("шапка: метка времени локальная, не UTC", c.includes(`сейчас ${localHourStamp()}`), c);
 }
 
 // --- 4. Точный подъём журнала по номеру из промпта -----------------------------

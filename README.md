@@ -10,8 +10,8 @@
 
 | Волна | Содержание | Статус |
 |---|---|---|
-| **W1** | флоу и журнал: скиллы, детали 13 этапов, шаблоны, команды | **проверено на живой задаче**, замечания влиты |
-| **W2** | hooks: шапка сессии, гейт на commit/push | **проверено в живой работе**, 39 проверок проходят |
+| **W1** | флоу и журнал: скиллы, детали 14 этапов, шаблоны, команды | **проверено на живой задаче**, замечания влиты |
+| **W2** | hooks: шапка сессии, гейт на commit/push | **проверено в живой работе**, 41 проверка проходит |
 | **W3** | интеграции: CLI над трекером, `/volna:recall` | **проверено в живой работе**, 84 проверки проходят |
 | **W4** | onboarding для команды, документ по стоимости, ограничения | **закрыто**, версия закреплена тегом `v0.1.10` |
 
@@ -43,32 +43,51 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 
 ## Команды
 
+**У каждого этапа — своя команда:** одно слово вместо команды с аргументом, поэтому этап
+выбирается автокомплитом (набрать `/volna:` и листать), а не по памяти.
+
+| Этап | Команда | Уровень |
+|---|---|---|
+| 1 принять задачу | `/volna:task <id>` | required |
+| 2 разбор постановки и эталона | `/volna:analyze` | expected |
+| 3 постановка своими словами | `/volna:spec` | expected |
+| 4 план по файлам, `Active` в трекере | `/volna:plan` | expected |
+| 5 реализация (итераций сколько нужно) | `/volna:implement [что доработать]` | expected |
+| 6 адвокат дьявола против решения | `/volna:advocate` | expected |
+| 7 оффлайн-снимок заказа | `/volna:fixtures` | optional |
+| 8 тесты по конвенциям | `/volna:unit-tests` | expected |
+| 9 пиксельная сверка человеком | `/volna:visual` | optional |
+| 10 коммит | `/volna:commit` | required |
+| 11 задача-фикс, push, PR | `/volna:push-pr` | required |
+| 12 статусы в трекере, списание времени | `/volna:close [причина]` | required |
+| 13 уборка: репозитории, ветки, индекс KB | `/volna:cleanup` | expected |
+| 14 опыт в knowledge, завершение задачи | `/volna:capture` | expected |
+
+Служебные, вне флоу:
+
 | Команда | Что делает |
 |---|---|
 | `/volna:init [путь]` | развернуть проектную часть: `.volna/`, `.env`, правила `.gitignore` |
 | `/volna:doctor` | проверить настройки, доступы и гигиену секретов |
 | `/volna:recall <тема>` | найти в знаниях и прошлых журналах то, что относится к теме |
-| `/volna:task <id>` | принять задачу: карточка задачи, знания по теме, журнал (этап `intake`) |
-| `/volna:status` | где мы: этап k/13, пройденное, пропущенное, открытые вопросы |
-| `/volna:stage <этап>` | перейти к любому этапу флоу |
+| `/volna:status` | где мы: этап k/14, карта этапов, пройденное, пропущенное, открытые вопросы |
 | `/volna:skip <этап> <причина>` | пропустить этап; причина уходит в журнал |
-| `/volna:back <этап> [что не так]` | вернуться на повторную итерацию, не переписывая прошлые записи |
-| `/volna:journal [текст]` | дописать запись в журнал или показать журнал |
+| `/volna:journal <текст>` | дописать запись в журнал |
 | `/volna:checkpoint` | дописать журнал до восстановимого состояния — перед `/compact` |
-| `/volna:close [причина]` | закрытие в трекере: статусы, списание времени, маршрут тестеру, уборка репозиториев (по подтверждению) |
-| `/volna:off [on]` | заглушить подсказки «Волны» до конца сессии или включить обратно |
+| `/volna:off`, `/volna:on` | заглушить подсказки «Волны» до конца сессии и вернуть обратно |
 
-Флоу — 13 этапов: `intake` → `analyze` → `spec` → `plan` → `implement`×N → `advocate` →
-`fixtures` → `unit-tests` → `visual` → `commit` → `push-pr` → `close` → `capture`.
+Флоу — 14 этапов, `implement` и `advocate` крутятся циклом, пока адвокат не даст «чисто».
 Уровни: `required` — только необратимое (`intake`, `commit`, `push-pr`, `close`),
 остальное `expected` или `optional`. Законный короткий путь:
-`intake → analyze → skip implement → close` («изменения кода не требуются»).
+`intake → analyze → skip implement → close → cleanup` («изменения кода не требуются»).
+Отдельных команд «перейти к этапу» и «вернуться» нет: повторный вызов пройденного этапа
+открывает **новую итерацию**, а прошлые записи журнала остаются как были.
 
 ## Два плагина
 
 | Плагин | Содержимое | Кому |
 |---|---|---|
-| `volna` | скиллы `volna-flow`, `volna-journal`, 12 команд `/volna:*` | всем, кто ведёт задачи |
+| `volna` | скиллы `volna-flow`, `volna-journal`, команды `/volna:*` — по одной на этап плюс служебные | всем, кто ведёт задачи |
 | `volna-craft` | `port-by-reference`, `code-comments`, `commit-style`, `test-style`, `test-fixtures`, `visual-compare` | тем, кто портирует legacy и держит строгие конвенции |
 
 Ремесленные скиллы обезличены от конкретного продукта: метод — в плагине, проектные детали —
@@ -82,15 +101,17 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 .claude-plugin/marketplace.json    каталог для /plugin marketplace add (оба плагина)
 plugins/volna-craft/               второй плагин: ремесленные скиллы + compare.py
 skills/
-  volna-flow/SKILL.md              карта 13 этапов, уровни required/expected/optional
+  volna-flow/SKILL.md              карта 14 этапов, уровни required/expected/optional
   volna-flow/stages/*.md           детали этапа: вход, что делать, DoD, что в журнал, ошибки
   volna-flow/templates/project.template.md   настройки проекта (команды, конвенции)
   volna-journal/SKILL.md           формат журнала, чек-пойнт, извлечение опыта
   volna-journal/templates/journal.template.md
-commands/                          init, doctor, task, stage, status, checkpoint, journal,
-                                   skip, back, close, off, recall
+commands/                          по одной на этап (task, analyze, spec, plan, implement,
+                                   advocate, fixtures, unit-tests, visual, commit, push-pr,
+                                   close, cleanup, capture) плюс служебные: init, doctor,
+                                   status, skip, journal, checkpoint, recall, off, on
 hooks/                             шапка сессии, гейт на commit/push
-hooks/test-hooks.mjs               39 проверок hooks на синтетическом .volna
+hooks/test-hooks.mjs               41 проверка hooks на синтетическом .volna
 lib/tfs-client.mjs                 клиент REST трекера (TFS / Azure DevOps Server)
 lib/env.mjs                        чтение .env без зависимостей
 bin/volna-tfs.mjs                  CLI над трекером: get/query/states/attachments/comment/describe/

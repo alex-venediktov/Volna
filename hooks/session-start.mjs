@@ -3,7 +3,7 @@
  * SessionStart: если есть активная задача - напомнить, где остановились.
  * Нет задачи, нет .volna/, сопровождение заглушено - молчание (обычный чат не трогаем).
  */
-import { readHookInput, loadActive, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, truncate, STAGES }
+import { readHookInput, loadActive, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, truncate, localStamp, STAGES }
   from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
@@ -19,6 +19,8 @@ await runQuietly(async () => {
       `${fm.type ? ` (${fm.type})` : ""}`,
     `Этап: ${stage}${pos ? ` · ${pos}/${STAGES.length}` : ""}` +
       `${fm.branch ? ` · ветка ${fm.branch}` : ""}`,
+    // Время машины для меток журнала: локальное, не UTC.
+    `Сейчас: ${localStamp()}`,
   ];
 
   // Начало сессии - единственное место, где уместен следующий шаг из резюме целиком.
