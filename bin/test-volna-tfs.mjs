@@ -8,7 +8,7 @@
 import { run, parseArgs, parseFieldAssignments } from "./volna-tfs.mjs";
 import { parseEnv } from "../lib/env.mjs";
 import { TfsClient, normalizeRefName, parsePullRequestUrl, pullRequestArtifactUrl, pullRequestIds,
-  errorHint } from "../lib/tfs-client.mjs";
+  errorHint, looksLikeHtml } from "../lib/tfs-client.mjs";
 
 let failures = 0;
 function check(name, cond, detail = "") {
@@ -103,11 +103,28 @@ function fakeClient(workItem = {}, found = [], items = {}) {
     },
     async createChildTask(parentId, fields, type) {
       calls.push(["createChildTask", parentId, fields, type]);
-      return { id: "4242", url: "http://tracker/_apis/wit/workItems/4242" };
+      // сервер отдаёт созданную задачу целиком: состояние он ставит сам, мы его не посылали
+      return {
+        id: "4242", url: "http://tracker/_apis/wit/workItems/4242",
+        fields: { ...fields, "System.State": "New" },
+      };
     },
     async createWorkItem(type, ops) {
       calls.push(["createWorkItem", type, ops]);
       return { id: 4343, url: "http://tracker/_apis/wit/workItems/4343" };
+    },
+    async currentUser() {
+      calls.push(["currentUser"]);
+      return { id: "u-1", displayName: "Иван Петров", uniqueName: "DOMAIN\\ipetrov" };
+    },
+    async typeFields(type, opts) {
+      calls.push(["typeFields", type, opts]);
+      const all = [
+        { ref: "proj.control", name: "Контроль проекта", required: true, allowed: ["ОКР", "Поддержка"] },
+        { ref: "System.Title", name: "Заголовок", required: true, allowed: [] },
+        { ref: "Microsoft.VSTS.Common.Priority", name: "Приоритет", required: false, allowed: ["1", "2"] },
+      ];
+      return opts?.requiredOnly ? all.filter((f) => f.required) : all;
     },
     async linkWorkItem(id, targetId, rel) {
       calls.push(["linkWorkItem", id, targetId, rel]);
@@ -435,6 +452,197 @@ const WRITE_CASES = [
     { client, log: c.log, err: c.err });
   check("create: при --dry-run поля процесса названы в намерении",
     c.errText().includes("some.field=значение") && !client.calls.length, c.errText());
+}
+
+// --- create: исполнитель по умолчанию -----------------------------------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["create", "Task", "--title", "суть", "--parent", "2000", "--estimate", "2"],
+    { client, log: c.log, err: c.err });
+  const [, , fields] = client.calls.find(([m]) => m === "createChildTask") ?? [];
+  check("create: без --assign исполнителем ставится текущий пользователь",
+    fields?.["System.AssignedTo"] === "Иван Петров", JSON.stringify(fields?.["System.AssignedTo"]));
+  check("create: исполнитель напечатан в ответе", c.text().includes("исполнитель: Иван Петров"), c.text());
+  check("create: состояние из ответа сервера напечатано", c.text().includes("состояние: New"), c.text());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["create", "Task", "--title", "суть", "--assign", "Пётр Иванов"],
+    { client, log: c.log, err: c.err });
+  const [, , ops] = client.calls.find(([m]) => m === "createWorkItem") ?? [];
+  const assigned = ops?.find((o) => o.path === "/fields/System.AssignedTo")?.value;
+  check("create: --assign важнее текущего пользователя", assigned === "Пётр Иванов", String(assigned));
+  check("create: текущего пользователя при явном --assign не спрашиваем",
+    !client.calls.some(([m]) => m === "currentUser"), JSON.stringify(client.calls));
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["create", "Task", "--title", "суть", "--no-assign"], { client, log: c.log, err: c.err });
+  const [, , ops] = client.calls.find(([m]) => m === "createWorkItem") ?? [];
+  check("create: --no-assign оставляет поле исполнителя пустым",
+    !ops?.some((o) => o.path === "/fields/System.AssignedTo"), JSON.stringify(ops));
+  check("create: отсутствие исполнителя названо явно", c.text().includes("НЕ ЗАДАН"), c.text());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  client.currentUser = async () => { throw new Error("HTTP 404 connectionData"); };
+  const code = await run(["create", "Task", "--title", "суть"], { client, log: c.log, err: c.err });
+  check("create: недоступный connectionData не роняет создание",
+    code === 0 && client.calls.some(([m]) => m === "createWorkItem"), String(code));
+  check("create: про неопределённого пользователя сказано",
+    c.errText().includes("без исполнителя"), c.errText());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["create", "Task", "--title", "суть", "--dry-run"], { client, log: c.log, err: c.err });
+  check("create: при --dry-run исполнитель назван в намерении",
+    c.errText().includes("исполнитель - текущий пользователь") && !client.calls.length, c.errText());
+}
+
+// --- create: поля процесса с соседней задачи (--like) --------------------------
+{
+  const c = capture();
+  const neighbour = { id: 2000, fields: { "proj.control": "ОКР", "System.Title": "чужая суть" } };
+  const client = fakeClient(neighbour);
+  await run(["create", "Task", "--title", "своя суть", "--like", "2000"],
+    { client, log: c.log, err: c.err });
+  const [, , ops] = client.calls.find(([m]) => m === "createWorkItem") ?? [];
+  const value = (ref) => ops?.find((o) => o.path === `/fields/${ref}`)?.value;
+  check("--like: обязательное поле процесса снято с соседней задачи",
+    value("proj.control") === "ОКР", JSON.stringify(ops));
+  check("--like: заголовок соседней задачи не наследуется",
+    value("System.Title") === "своя суть", String(value("System.Title")));
+  check("--like: снятые поля напечатаны", c.text().includes("proj.control=ОКР"), c.text());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["create", "Task", "--title", "суть", "--like", "2000", "--field", "proj.control=Поддержка"],
+    { client, log: c.log, err: c.err });
+  const [, , ops] = client.calls.find(([m]) => m === "createWorkItem") ?? [];
+  check("--like: флаг --field важнее снятого значения",
+    ops?.find((o) => o.path === "/fields/proj.control")?.value === "Поддержка", JSON.stringify(ops));
+}
+
+// --- create: отказ на обязательном поле процесса ------------------------------
+{
+  const c = capture();
+  const client = fakeClient({ id: 2000, fields: { "proj.control": "ОКР" } });
+  client.createChildTask = async () => {
+    throw new Error('TFS POST -> HTTP 400: {"customProperties":' +
+      '{"fieldReferenceName":"proj.control"},"message":"TF401320: Rule Error"}');
+  };
+  client.fieldAllowedValues = async () => ["ОКР", "Поддержка"];
+  const code = await run(["create", "Task", "--title", "суть", "--parent", "2000"],
+    { client, log: c.log, err: c.err });
+  check("TF401320: код 1 и сказано, что задача не создана",
+    code === 1 && c.errText().includes("НЕ создана"), `${code} ${c.errText()}`);
+  check("TF401320: названо поле процесса", c.errText().includes("proj.control"), c.errText());
+  check("TF401320: перечислены допустимые значения процесса",
+    c.errText().includes("ОКР, Поддержка"), c.errText());
+  check("TF401320: показано значение у родителя", c.errText().includes("У родителя 2000"), c.errText());
+  check("TF401320: предложены --field и --like", c.errText().includes("--field proj.control=") &&
+    c.errText().includes("--like 2000"), c.errText());
+  check("TF401320: постоянное значение предложено записать знанием",
+    c.errText().includes("knowledge/tfs/"), c.errText());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  client.createWorkItem = async () => { throw new Error("HTTP 500: сервер лежит"); };
+  const code = await run(["create", "Task", "--title", "суть"], { client, log: c.log, err: c.err });
+  check("create: посторонняя ошибка не выдаётся за правило процесса",
+    code === 2 && c.errText().includes("сервер лежит"), `${code} ${c.errText()}`);
+}
+
+// --- whoami и fields ----------------------------------------------------------
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["whoami"], { client, log: c.log, err: c.err });
+  check("whoami: код 0 и имя пользователя", code === 0 && c.text().includes("Иван Петров"), c.text());
+  check("whoami: учётная запись показана", c.text().includes("DOMAIN\\ipetrov"), c.text());
+  check("whoami: сказано, что уйдёт в исполнителя", c.text().includes("исполнителя новой задачи"), c.text());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  client.currentUser = async () => ({ id: "", displayName: "", uniqueName: "" });
+  const code = await run(["whoami"], { client, log: c.log, err: c.err });
+  check("whoami: пустой ответ - код 1 и предупреждение",
+    code === 1 && c.errText().includes("без исполнителя"), `${code} ${c.errText()}`);
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["fields", "Task"], { client, log: c.log, err: c.err });
+  const t = c.text();
+  check("fields: код 0", code === 0, String(code));
+  check("fields: обязательное поле и его значения показаны",
+    t.includes("proj.control") && t.includes("ОКР, Поддержка"), t);
+  check("fields: необязательное поле по умолчанию не показано",
+    !t.includes("Priority"), t);
+  check("fields: назван способ задать значение", t.includes("--field") && t.includes("--like"), t);
+  check("fields: постоянное значение области - в знания, не в окружение",
+    t.includes("knowledge/tfs/"), t);
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["fields", "Task", "--all"], { client, log: c.log, err: c.err });
+  check("fields: с --all показаны и необязательные поля", c.text().includes("Priority"), c.text());
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["fields"], { client, log: c.log, err: c.err });
+  check("fields: без типа задачи - код 1 и подсказка",
+    code === 1 && !client.calls.length, String(code));
+}
+
+// --- многострочные поля принимают Markdown, не HTML ---------------------------
+{
+  check("HTML на входе: блочные теги распознаны", looksLikeHtml("<p>абзац</p>"), "");
+  check("HTML на входе: список распознан", looksLikeHtml("текст<br/>ещё"), "");
+  check("HTML на входе: markdown ложно не срабатывает",
+    !looksLikeHtml("- пункт\n**жирный** и `код`, 5 < 7 и a -> b"), "");
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  const code = await run(["describe", "2001", "<p>Ограничение реализации</p>"],
+    { client, log: c.log, err: c.err });
+  const [, , html] = client.calls.find(([m]) => m === "setDescription") ?? [];
+  check("describe: про HTML на входе предупреждено",
+    c.errText().includes("принимает Markdown"), c.errText());
+  check("describe: предупреждение не отменяет записи", code === 0 && String(html).length > 0, String(code));
+  check("describe: поданные теги ушли экранированными",
+    String(html).includes("&lt;p&gt;"), String(html));
+}
+
+{
+  const c = capture();
+  const client = fakeClient(WI);
+  await run(["create", "Task", "--title", "суть", "--body", "<ul><li>пункт</li></ul>"],
+    { client, log: c.log, err: c.err });
+  check("create: про HTML в описании предупреждено",
+    c.errText().includes("принимает Markdown"), c.errText());
 }
 
 // --- поля: скаляр и подсказки к ошибкам сервера -------------------------------

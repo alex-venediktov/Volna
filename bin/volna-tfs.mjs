@@ -10,14 +10,19 @@
  *
  * Использование:
  *   volna-tfs check                        проверить доступ (для /volna:doctor)
+ *   volna-tfs whoami                       кто мы для трекера: на кого уйдёт новая задача
  *   volna-tfs get <id>                     задача: поля, постановка, обсуждение, связи, вложения
  *   volna-tfs query <запрос>               выборка WIQL: id, тип, состояние, заголовок
  *   volna-tfs states <тип>                 состояния и причины типа задачи (справочник процесса)
+ *   volna-tfs fields <тип>                 обязательные поля процесса и их допустимые значения
  *   volna-tfs attachments <id> [--out dir] скачать вложения задачи (анонимно трекер отдаёт 401)
- *   volna-tfs comment <id> <текст>         комментарий в обсуждение (markdown -> HTML)
+ *   volna-tfs comment <id> <текст>         комментарий в обсуждение (вход - markdown)
  *   volna-tfs describe <id> --body-file f  дописать абзац в описание ([--replace] - заменить)
  *   volna-tfs create <тип> --title T       завести задачу ([--parent id] [--estimate часы])
+ *                                          исполнитель - текущий пользователь ([--assign кто],
+ *                                          [--no-assign] - без исполнителя)
  *                                          [--field ref=значение] - поля процесса, флаг повторяемый
+ *                                          [--like id] - снять поля процесса с соседней задачи
  *   volna-tfs time <id> <часы> [--set]     затраченное время: прибавить или заменить
  *   volna-tfs estimate <id> --original N   оценка и остаток работ ([--remaining M])
  *   volna-tfs link <id> <цель> [--rel r]   связь между задачами: related, parent, child
@@ -29,13 +34,16 @@
  *   volna-tfs attach <id> <файл> [--discussion] [--comment <текст>]
  *   volna-tfs state <id> <состояние> [--assign <кому>] [--reason <причина>]
  *
+ * Многострочные поля (описание, комментарий) принимают MARKDOWN: HTML собирается сам, а поданные
+ * теги экранируются и видны в трекере текстом.
+ *
  * Флаги: --dry-run (напечатать намерение и не менять ничего), --json (сырой ответ вместо markdown).
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TfsClient, tfsConfigFromEnv, summarize, pullRequestIds, parsePullRequestUrl,
-  markdownToTfsHtml, htmlToMarkdown } from "../lib/tfs-client.mjs";
+  markdownToTfsHtml, htmlToMarkdown, looksLikeHtml } from "../lib/tfs-client.mjs";
 import { loadEnv } from "../lib/env.mjs";
 
 const WRITE_COMMANDS = new Set([
@@ -64,7 +72,7 @@ export function parseArgs(argv) {
     // флаги со значением: --comment "текст", --assign "кто", --target DEV, --body-file путь
     if (["comment", "assign", "reason", "title", "top", "target", "body", "body-file",
       "work-item", "name", "out", "parent", "estimate", "original", "remaining", "area",
-      "iteration", "tags", "rel", "source", "status", "add", "remove"].includes(name)) {
+      "iteration", "tags", "rel", "source", "status", "add", "remove", "like"].includes(name)) {
       flags[name] = argv[++i] ?? "";
     } else {
       flags[name] = true;
@@ -112,9 +120,11 @@ export async function run(argv, deps = {}) {
   try {
     switch (command) {
       case "check": return await cmdCheck(client, log);
+      case "whoami": return await cmdWhoami(client, args, flags, log, err);
       case "get": return await cmdGet(client, args, flags, log, err);
       case "query": return await cmdQuery(client, args, flags, log, err);
       case "states": return await cmdStates(client, args, flags, log, err);
+      case "fields": return await cmdFields(client, args, flags, log, err);
       case "attachments": return await cmdAttachments(client, args, flags, log, err, deps.writeFile);
       case "comment": return await cmdComment(client, args, flags, log, err, readFile);
       case "describe": return await cmdDescribe(client, args, flags, log, err, readFile);
@@ -152,6 +162,52 @@ async function cmdCheck(client, log) {
     : "смотри ответ сервера";
   log(`Доступа нет: HTTP ${res.status} - ${hint}.`);
   return 1;
+}
+
+/**
+ * Кто мы для трекера. Отдельной командой, потому что от этого значения зависит исполнитель
+ * новой задачи: проверить его надо до создания, а не по правке поля человеком после.
+ */
+async function cmdWhoami(client, args, flags, log, err) {
+  const me = await client.currentUser();
+  if (flags.json) { log(JSON.stringify(me, null, 2)); return 0; }
+  if (!me.displayName && !me.uniqueName) {
+    err("Трекер не назвал текущего пользователя: задачи будут создаваться без исполнителя.");
+    return 1;
+  }
+  log(`Текущий пользователь: ${me.displayName || "имя не отдано"}` +
+    `${me.uniqueName ? ` (${me.uniqueName})` : ""}`);
+  log(`В исполнителя новой задачи уйдёт: ${me.displayName || me.uniqueName}`);
+  return 0;
+}
+
+/**
+ * Поля процесса у типа задачи. Смотреть ДО создания: иначе `create` падает на TF401320, а
+ * значение обязательного поля приходится подсматривать у соседней задачи области.
+ */
+async function cmdFields(client, args, flags, log, err) {
+  const type = args[0];
+  if (!type) { err("Нужен тип задачи: volna-tfs fields <Task|Bug|User Story> [--all]"); return 1; }
+
+  const all = await client.typeFields(type);
+  if (flags.json) { log(JSON.stringify(all, null, 2)); return 0; }
+
+  const shown = flags.all ? all : all.filter((f) => f.required);
+  const out = [`# ${type}: поля процесса${flags.all ? "" : " (обязательные)"}`, ""];
+  if (!shown.length) {
+    out.push("Обязательных полей у типа нет: на TF401320 создание падать не должно.");
+  }
+  for (const f of shown) {
+    out.push(`- ${f.ref}${f.name && f.name !== f.ref ? ` (${f.name})` : ""}` +
+      `${f.required ? " · обязательное" : ""}` +
+      `${f.allowed.length ? ` · значения: ${f.allowed.join(", ")}` : ""}`);
+  }
+  if (!flags.all) out.push("", "Все поля типа - тот же вызов с --all.");
+  out.push("", "Значение задаётся флагом --field <ref>=<значение> либо снимается с соседней",
+    "задачи области: create ... --like <id>. Постоянное значение области - знанием",
+    "в .volna/knowledge/tfs/, не в окружении.");
+  log(out.join("\n"));
+  return 0;
 }
 
 async function cmdGet(client, args, flags, log, err) {
@@ -310,6 +366,7 @@ async function cmdComment(client, args, flags, log, err, readFile) {
     err("Нужны id и текст: volna-tfs comment <id> <текст> (или --body-file <файл>)");
     return 1;
   }
+  warnIfHtml(text, err);
   await client.addComment(id, markdownToTfsHtml(text));
   log(`Задача ${id}: комментарий добавлен.`);
   log("Исправить его нельзя: комментарий - ревизия истории, правка отвечает 405.");
@@ -327,6 +384,7 @@ async function cmdDescribe(client, args, flags, log, err, readFile) {
     err("Нужны id и текст: volna-tfs describe <id> --body-file <файл> [--replace]");
     return 1;
   }
+  warnIfHtml(text, err);
   const res = await client.setDescription(id, markdownToTfsHtml(text), { replace: flags.replace === true });
   log(`Задача ${id}: описание ${res.replaced ? "заменено" : "дополнено"}.`);
   return 0;
@@ -335,6 +393,8 @@ async function cmdDescribe(client, args, flags, log, err, readFile) {
 /**
  * Завести задачу. Родитель ставится связью сразу: без него задача теряется вне стори. Оценка
  * пишется в обе колонки часов - по конвенции команды у новой задачи остаток равен оценке.
+ * Исполнитель по умолчанию - текущий пользователь, и он печатается в ответе: промах иначе не
+ * виден ни при создании, ни при проверке (в поле уже стоит исправленное человеком значение).
  */
 async function cmdCreate(client, args, flags, log, err, readFile, env) {
   const type = args[0] || "Task";
@@ -348,11 +408,16 @@ async function cmdCreate(client, args, flags, log, err, readFile, env) {
   const area = flags.area ?? env?.TFS_AREA_PATH;
   if (area) fields["System.AreaPath"] = area;
   if (flags.iteration) fields["System.IterationPath"] = flags.iteration;
-  if (flags.assign) fields["System.AssignedTo"] = flags.assign;
   if (flags.tags) fields["System.Tags"] = String(flags.tags).split(",").map((t) => t.trim()).filter(Boolean).join("; ");
 
+  const assignee = await resolveAssignee(client, flags, err);
+  if (assignee) fields["System.AssignedTo"] = assignee;
+
   const description = bodyText("", flags, readFile);
-  if (description) fields["System.Description"] = markdownToTfsHtml(description);
+  if (description) {
+    warnIfHtml(description, err);
+    fields["System.Description"] = markdownToTfsHtml(description);
+  }
 
   const estimate = Number(String(flags.estimate ?? "").replace(",", "."));
   if (Number.isFinite(estimate) && estimate > 0) {
@@ -360,16 +425,24 @@ async function cmdCreate(client, args, flags, log, err, readFile, env) {
     fields["Microsoft.VSTS.Scheduling.RemainingWork"] = estimate;
   }
 
-  // Обязательные поля процесса (у каждого сервера свои): умолчания из .env, флаг важнее.
+  // Обязательные поля процесса (у каждого сервера свои) по возрастанию важности:
+  // соседняя задача, устаревшая переменная окружения, флаг.
+  if (flags.like) Object.assign(fields, await inheritProcessFields(client, type, flags.like, log, err));
   Object.assign(fields, parseFieldAssignments(env?.TFS_CREATE_FIELDS));
   Object.assign(fields, parseFieldAssignments(flags.field));
 
-  const created = flags.parent
-    ? await client.createChildTask(flags.parent, fields, type)
-    : await createStandalone(client, type, fields);
+  let created;
+  try {
+    created = flags.parent
+      ? await client.createChildTask(flags.parent, fields, type)
+      : await createStandalone(client, type, fields);
+  } catch (e) {
+    return await explainCreateFailure(client, type, flags, e, err);
+  }
 
   log(`Задача ${created.id} создана: ${title}`);
   if (flags.parent) log(`родитель: ${flags.parent}`);
+  log(describeCreated(created, fields));
   if (!Number.isFinite(estimate) || estimate <= 0) {
     log("Оценка не задана: по конвенции команды у задачи должны быть заполнены часы (--estimate).");
   }
@@ -378,7 +451,110 @@ async function cmdCreate(client, args, flags, log, err, readFile, env) {
 
 async function createStandalone(client, type, fields) {
   const wi = await client.createWorkItem(type, client.fieldOps(fields));
-  return { id: String(wi.id ?? ""), url: wi.url ?? "" };
+  return { id: String(wi.id ?? ""), url: wi.url ?? "", fields: wi.fields ?? {} };
+}
+
+/**
+ * Кому уходит новая задача: по умолчанию текущему пользователю. Задача-фикс без исполнителя не
+ * видна в очереди, а --assign человек ставил не всегда. --no-assign оставляет поле пустым.
+ * Пользователь не определился - создаём без исполнителя, но говорим об этом.
+ */
+async function resolveAssignee(client, flags, err) {
+  if (flags["no-assign"]) return "";
+  if (flags.assign) return String(flags.assign);
+  try {
+    const me = await client.currentUser();
+    const value = me.displayName || me.uniqueName;
+    if (value) return value;
+    err("Трекер не назвал текущего пользователя - задача создаётся без исполнителя (--assign).");
+  } catch (e) {
+    err(`Текущего пользователя определить не удалось (${e.message}) - создаю без исполнителя.`);
+  }
+  return "";
+}
+
+/** Что реально стоит в созданной задаче: ответ сервера важнее того, что мы отправляли. */
+function describeCreated(created, sent) {
+  const value = (ref) => {
+    const v = created.fields?.[ref] ?? sent[ref];
+    return v && typeof v === "object" ? String(v.displayName ?? v.uniqueName ?? "") : String(v ?? "");
+  };
+  const state = value("System.State");
+  const area = value("System.AreaPath");
+  return `исполнитель: ${value("System.AssignedTo") || "НЕ ЗАДАН"}` +
+    `${state ? ` · состояние: ${state}` : ""}${area ? ` · область: ${area}` : ""}`;
+}
+
+// Поля самой задачи: с соседней не наследуются, иначе новая задача унаследует чужую суть.
+const NOT_INHERITED = new Set([
+  "System.Title", "System.State", "System.Reason", "System.AssignedTo", "System.Description",
+  "System.AreaPath", "System.IterationPath", "System.Tags",
+  "Microsoft.VSTS.Scheduling.OriginalEstimate", "Microsoft.VSTS.Scheduling.RemainingWork",
+  "Microsoft.VSTS.Scheduling.CompletedWork",
+]);
+
+/**
+ * Обязательные поля процесса, снятые с существующей задачи (--like): ровно то, что человек
+ * делает руками, открывая соседнюю задачу той же области. Справочник недоступен - не падаем,
+ * а говорим: поля можно задать флагом.
+ */
+async function inheritProcessFields(client, type, likeId, log, err) {
+  let required;
+  try {
+    required = (await client.typeFields(type, { requiredOnly: true }))
+      .filter((f) => !NOT_INHERITED.has(f.ref));
+  } catch (e) {
+    err(`Справочник полей процесса недоступен (${e.message}) - --like пропущен, задай --field.`);
+    return {};
+  }
+  if (!required.length) return {};
+
+  const wi = await client.getWorkItem(likeId).catch(() => null);
+  if (!wi) {
+    err(`Задачу ${likeId} прочитать не удалось - поля процесса с неё не сняты.`);
+    return {};
+  }
+  const out = {};
+  for (const f of required) {
+    const v = wi.fields?.[f.ref];
+    if (v == null || typeof v === "object") continue;
+    out[f.ref] = v;
+  }
+  const pairs = Object.entries(out).map(([ref, v]) => `${ref}=${v}`);
+  log(pairs.length
+    ? `поля процесса с задачи ${likeId}: ${pairs.join("; ")}`
+    : `У задачи ${likeId} обязательные поля процесса не заполнены - проверь номер.`);
+  return out;
+}
+
+/**
+ * Разбор отказа при создании. Сервер называет только ИМЯ обязательного поля, и человек уходит
+ * подсматривать значение у соседней задачи отдельным запросом. Печатаем допустимые значения
+ * процесса и то, что стоит у родителя, но не подставляем молча: угаданное значение процесса
+ * уедет в трекер незаметно.
+ */
+async function explainCreateFailure(client, type, flags, error, err) {
+  const ref = /"fieldReferenceName"\s*:\s*"([^"]+)"/.exec(error.message)?.[1];
+  if (!/TF401320/.test(error.message) || !ref) throw error;
+
+  err(`Задача НЕ создана: процесс требует поле ${ref} у типа ${type}.`);
+  const allowed = await client.fieldAllowedValues(type, ref).catch(() => []);
+  err(allowed.length
+    ? `Допустимые значения: ${allowed.join(", ")}`
+    : "Список допустимых значений сервер не отдал: смотри volna-tfs fields " + type);
+
+  if (flags.parent) {
+    const parent = await client.getWorkItem(flags.parent).catch(() => null);
+    const v = parent?.fields?.[ref];
+    if (v != null && typeof v !== "object") {
+      err(`У родителя ${flags.parent} в этом поле стоит «${v}».`);
+    }
+  }
+  err(`Повтори с --field ${ref}=<значение>` +
+    `${flags.parent ? ` либо с --like ${flags.parent}` : ""}.`);
+  err("Значение постоянно для области - запиши его знанием в .volna/knowledge/tfs/ (этап deliver" +
+    " читает указатель), а не в окружение.");
+  return 1;
 }
 
 /**
@@ -455,6 +631,16 @@ async function cmdTag(client, args, flags, log, err) {
   const res = await client.setTags(id, { add, remove });
   log(`Задача ${id}: теги - ${res.tags.join("; ") || "нет"}.`);
   return 0;
+}
+
+/**
+ * Вход многострочных полей - Markdown, HTML собирается сам. Поданные теги экранируются и уходят
+ * в трекер текстом: наблюдалось описание задачи с видимыми `&lt;p&gt;` в постановке.
+ */
+function warnIfHtml(text, err) {
+  if (!looksLikeHtml(text)) return;
+  err("Вход похож на HTML, а поле принимает Markdown: теги будут экранированы и видны текстом.");
+  err("Пиши абзацами и списками `-`; уже записанное исправляется describe --replace.");
 }
 
 /** Текст записи: аргумент командной строки или файл. Длинная кириллица в argv бьётся. */
@@ -712,6 +898,9 @@ function describeIntent(command, args, flags) {
     case "create": return `Собирался завести ${args[0] ?? "Task"} «${flags.title ?? ""}»` +
       `${flags.parent ? ` под задачей ${flags.parent}` : " без родителя"}` +
       `${flags.estimate ? `, оценка ${flags.estimate}` : ""}` +
+      `${flags["no-assign"] ? ", без исполнителя"
+        : `, исполнитель ${flags.assign ?? "- текущий пользователь"}`}` +
+      `${flags.like ? `, поля процесса с задачи ${flags.like}` : ""}` +
       `${flags.field?.length ? `, поля процесса: ${flags.field.join("; ")}` : ""}.`;
     case "estimate": return `Собирался задать задаче ${id} часы: ` +
       `${flags.original != null ? `оценка ${flags.original}` : ""}` +
@@ -737,16 +926,20 @@ function usage() {
     "volna-tfs - CLI над трекером для «Волны». Запись идёт сразу; --dry-run печатает намерение.",
     "",
     "  check                                   проверить доступ",
+    "  whoami [--json]                         кто мы для трекера: исполнитель новой задачи",
     "  get <id> [--json]                       задача: поля, постановка, обсуждение, связи, вложения",
     "  query <запрос> [--top N] [--ids] [--json]   выборка WIQL; можно только условие после WHERE",
     "  states <тип> [--json]                   состояния и причины типа задачи",
+    "  fields <тип> [--all] [--json]           поля процесса и их допустимые значения",
     "  attachments <id> [--out каталог]        скачать вложения задачи",
     "  comment <id> <текст>                    комментарий в обсуждение (или --body-file файл)",
     "  describe <id> --body-file файл          дописать абзац в описание ([--replace])",
     "  create <тип> --title T [--parent id] [--estimate часы] [--tags A,B]",
-    "         [--assign кто] [--area путь] [--body-file файл]",
-    "         [--field ref=значение ...]       завести задачу",
-    "         обязательные поля процесса - флагом --field (повторяемый) или TFS_CREATE_FIELDS в .env",
+    "         [--assign кто | --no-assign] [--area путь] [--body-file файл]",
+    "         [--field ref=значение ...] [--like id]   завести задачу",
+    "         исполнитель по умолчанию - текущий пользователь; --no-assign оставляет поле пустым",
+    "         обязательные поля процесса - флагом --field (повторяемый), --like <id> снимает их",
+    "         с соседней задачи области; какие они - `fields <тип>`",
     "  time <id> <часы> [--set]                списать часы (по умолчанию прибавить)",
     "  estimate <id> [--original N] [--remaining M]   оценка и остаток работ",
     "  link <id> <цель> [--rel related|parent|child|duplicate]   связь задач",
@@ -758,6 +951,9 @@ function usage() {
     "  link-pr <id> <репо> <номер>             нативная связь задача-PR (или <id> <url>)",
     "  attach <id> <файл> [--discussion] [--comment T]",
     "  state <id> <состояние> [--assign кто] [--reason почему]",
+    "",
+    "Описание и комментарий принимают MARKDOWN (абзацы, списки -, заголовки #, код, ссылки):",
+    "HTML собирается сам, поданные теги экранируются и видны в трекере текстом.",
     "",
     "Любая пишущая команда с --dry-run печатает, что собиралась изменить, и не отправляет ничего.",
     "Адреса, целевая ветка PR (TFS_TARGET_BRANCH) и путь к файлу PAT - в .env рабочего",
