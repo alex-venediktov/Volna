@@ -146,6 +146,14 @@ if (Test-Path -LiteralPath $indexMd) {
     Write-Ok '.volna/knowledge/INDEX.md создан (пустой указатель по этапам)'
 }
 
+$feedbackMd = Join-Path $volnaDir 'feedback.md'
+if (Test-Path -LiteralPath $feedbackMd) {
+    Write-Skip '.volna/feedback.md уже есть - не тронут'
+} else {
+    Write-Utf8NoBom $feedbackMd (Get-Template 'skills/volna-journal/templates/feedback.template.md')
+    Write-Ok '.volna/feedback.md создан (замечания к флоу с этапа capture)'
+}
+
 $projectMd = Join-Path $volnaDir 'project.md'
 if (Test-Path -LiteralPath $projectMd) {
     Write-Skip '.volna/project.md уже есть - не тронут'
@@ -171,6 +179,7 @@ $ignoreEntries = @(
     '.env.local',
     '.volna/state.json',
     '.volna/journal/',
+    '.volna/feedback.md',
     '.volna/project.local.md'
 )
 $gitignore = Join-Path $Path '.gitignore'

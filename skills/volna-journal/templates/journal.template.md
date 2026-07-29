@@ -4,7 +4,7 @@ title: "<заголовок из TFS>"
 type: <bug|story|task>
 tracker: "<ссылка на задачу в трекере>"
 parent:                    # родительская US — источник постановки (для bug)
-fix_task:                  # id задачи-фикса в TFS (появится на push-pr)
+fix_task:                  # id задачи-фикса в TFS (появится на deliver)
 branch:                    # <bugfix|feature>/<ID>-<slug>, создаётся на implement
 repos: []                  # back | front | agent
 stage: intake

@@ -151,7 +151,7 @@ write("implement");
     prompt: "продолжаем правку" });
   const c = ctx(r);
   const lines = c.split("\n").length;
-  check("шапка: задача, этап, позиция", c.includes("21571") && c.includes("implement") && c.includes("5/14"), c);
+  check("шапка: задача, этап, позиция", c.includes("21571") && c.includes("implement") && c.includes("5/13"), c);
   check(`шапка: бюджет <=20 строк (сейчас ${lines})`, lines <= 20, c);
   check("шапка: не больше 3 открытых пунктов", (c.match(/открыто:/g) || []).length <= 3, c);
   // Метки журнала ставит модель по этой строке: UTC вместо локального времени уехал бы на зону.
@@ -219,25 +219,42 @@ stages_done: [intake, analyze]
   check("commit с записью этапа: пропуск", g2.out === "" && g2.code === 0, g2.out);
 }
 
-// --- 7. Гейт push: commit не пройден -> deny; пройден + bug без fix_task -> warn
+// --- 7. Гейт push: этап доставки не начат -> deny; начат + bug без fix_task -> warn
 {
   const p = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
     tool_input: { command: "git push -u origin HEAD" } });
-  check("push без этапа commit: deny", decision(p).permissionDecision === "deny", p.out);
+  check("push вне этапа deliver: deny", decision(p).permissionDecision === "deny", p.out);
+  check("push deny: назван этап доставки",
+    /deliver/.test(decision(p).permissionDecisionReason || ""), p.out);
 
-  write("push-pr", { done: ["intake", "analyze", "implement", "commit"],
-    sections: "\n## commit · итерация 1 · 2026-07-25 14:00\n**что:** коммит\n**сделано:** зафиксировано\n" });
+  // Коммит - шаг deliver: на самом этапе push проходит по одному «да», второй записи не нужно.
+  write("deliver", { done: ["intake", "analyze", "implement"],
+    sections: "\n## deliver · итерация 1 · 2026-07-25 14:00\n**что:** коммит\n**сделано:** зафиксировано\n" });
   const p2 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
     tool_input: { command: "git push" } });
   let sys = "";
   try { sys = JSON.parse(p2.out)?.systemMessage ?? ""; } catch { /* пусто */ }
   check("push для бага без fix_task: предупреждение, не блок", sys.includes("fix_task"), p2.out);
 
-  write("push-pr", { fix_task: "21572", done: ["intake", "analyze", "implement", "commit"],
-    sections: "\n## commit · итерация 1 · 2026-07-25 14:00\n**что:** коммит\n**сделано:** зафиксировано\n" });
+  write("deliver", { fix_task: "21572", done: ["intake", "analyze", "implement"],
+    sections: "\n## deliver · итерация 1 · 2026-07-25 14:00\n**что:** коммит\n**сделано:** зафиксировано\n" });
   const p3 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
     tool_input: { command: "git push" } });
   check("push с fix_task: пропуск", p3.out === "", p3.out);
+
+  // Журнал задачи, начатой до объединения и переименования этапов: прежние имена этапа
+  // доставки («commit», «push-pr») тоже открывают push.
+  write("push-pr", { fix_task: "21572", done: ["intake", "analyze", "implement"],
+    sections: "\n## push-pr · итерация 1 · 2026-07-25 14:00\n**что:** коммит\n**сделано:** зафиксировано\n" });
+  const pOld = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git push" } });
+  check("push при старом этапе push-pr в журнале: пропуск", pOld.out === "", pOld.out);
+
+  write("implement", { fix_task: "21572", done: ["intake", "analyze", "implement", "commit"],
+    sections: "\n## commit · итерация 1 · 2026-07-25 14:00\n**что:** коммит\n**сделано:** зафиксировано\n" });
+  const p4 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git push" } });
+  check("push при старом этапе commit в журнале: пропуск", p4.out === "", p4.out);
 }
 
 // --- 7a. Гейт молчит, когда git идёт в стороннем репозитории -------------------

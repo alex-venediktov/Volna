@@ -12,11 +12,13 @@ argument-hint: [путь к рабочему репозиторию]
    - `.volna/journal/`, `.volna/knowledge/`;
    - `.volna/knowledge/INDEX.md` из `skills/volna-journal/templates/knowledge-index.template.md`
      — без указателя этапы не найдут накопленное знание;
+   - `.volna/feedback.md` из `skills/volna-journal/templates/feedback.template.md` — сюда этап
+     `capture` пишет замечания к самому флоу; примеры из шаблона убери, секции оставь;
    - `.volna/project.md` из `skills/volna-flow/templates/project.template.md`;
    - `.env` из `.env.example` «Волны».
 3. **Дополни `.gitignore`** правилами: `.env`, `.env.local`, `.volna/state.json`,
-   `.volna/journal/`, `.volna/project.local.md`. Уже присутствующие не дублируй.
-   `.volna/knowledge/` и `.volna/project.md` **коммитятся** — в игнор не добавлять.
+   `.volna/journal/`, `.volna/feedback.md`, `.volna/project.local.md`. Уже присутствующие не
+   дублируй. `.volna/knowledge/` и `.volna/project.md` **коммитятся** — в игнор не добавлять.
 4. **Помоги заполнить.** Спроси по очереди то, что нельзя определить самому: адрес трекера и
    проект, путь к файлу с PAT, пути репозиториев, корень эталона, команды сборки и тестов.
    Что можешь — определи сам и покажи на подтверждение: имя текущего репозитория, наличие

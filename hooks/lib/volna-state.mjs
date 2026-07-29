@@ -177,10 +177,10 @@ export function loadActive(cwd, { respectMute = true } = {}) {
   return { volnaDir, task: state.active, muted: state.muted, ...journal };
 }
 
-/** Порядок этапов флоу - для позиции k/14 в шапке. */
+/** Порядок этапов флоу - для позиции k/N в шапке. Коммит входит в deliver, своего этапа нет. */
 export const STAGES = [
   "intake", "analyze", "spec", "plan", "implement", "advocate", "fixtures",
-  "unit-tests", "visual", "commit", "push-pr", "close", "cleanup", "capture",
+  "unit-tests", "visual", "deliver", "close", "cleanup", "capture",
 ];
 
 /** Позиция этапа в флоу, 1-based; 0 - этап неизвестен. */

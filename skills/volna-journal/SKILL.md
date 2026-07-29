@@ -35,16 +35,17 @@ description: Формат журнала работ .volna/journal/TASK-<id>.md 
   journal/TASK-21571.md      журнал задачи                                 (не коммитится)
   knowledge/INDEX.md         указатель записей по этапам                   (коммитится)
   knowledge/<зона>/<slug>.md одна запись опыта = один файл                 (коммитится)
+  feedback.md                замечания к самому флоу, копится с capture    (не коммитится)
   project.md                 пути репозиториев, команды, конвенции         (коммитится)
 ```
 
-`.gitignore` рабочего репозитория: `.volna/state.json`, `.volna/journal/`.
+`.gitignore` рабочего репозитория: `.volna/state.json`, `.volna/journal/`, `.volna/feedback.md`.
 Решение команды — журналы локальные, шарится только `knowledge/`.
 
 ## Frontmatter = состояние
 
 Поля и заполненный пример — в `templates/journal.template.md`: `task`, `title`, `type`
-(bug/story/task), `tracker`, `parent`, `fix_task` (появляется на `push-pr`), `branch`, `repos`,
+(bug/story/task), `tracker`, `parent`, `fix_task` (появляется на `deliver`), `branch`, `repos`,
 `stage`, `stages_done`, `skipped` (`[{stage, reason}]`), `open`, `started`, `updated`.
 
 `stage`, `stages_done`, `open` обновляются **на каждом этапе** — их читает hook шапки
@@ -171,3 +172,7 @@ description: Формат журнала работ .volna/journal/TASK-<id>.md 
 отдачи и список записей, которые задача уточнила или опровергла.
 
 Формат записи, раскладка каталога и правило дубликатов — `references/knowledge.md`.
+
+**Второй выход того же этапа — `.volna/feedback.md`:** замечание не о продукте, а о самом флоу
+(этап мешал, правило неверно, шаг систематически пропускался). Оно уезжает в плагин, поэтому
+живёт отдельно от `knowledge/` и не коммитится; формат и секции — в `templates/feedback.template.md`.

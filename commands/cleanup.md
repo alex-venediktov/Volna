@@ -1,5 +1,5 @@
 ---
-description: Этап 13/14 · уборка: репозитории, слитые ветки, индекс базы знаний (expected)
+description: Этап 12/13 · уборка: репозитории, слитые ветки, индекс базы знаний (expected)
 argument-hint: [что убрать особо]
 disable-model-invocation: true
 ---
