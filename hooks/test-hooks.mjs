@@ -18,6 +18,7 @@ const journal = (stage, extra = {}) => `---
 task: 21571
 title: "Клапан не рисуется при зеркале"
 type: ${extra.type ?? "bug"}
+mode: ${extra.mode ?? "tracker"}
 tracker: "http://tracker/_workitems/edit/21571"
 fix_task: ${extra.fix_task ?? ""}
 branch: bugfix/21571-klapan-mirror
@@ -255,6 +256,58 @@ stages_done: [intake, analyze]
   const p4 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
     tool_input: { command: "git push" } });
   check("push при старом этапе commit в журнале: пропуск", p4.out === "", p4.out);
+}
+
+// --- 7b. Локальная задача (mode: local): push не блокируется, commit - блокируется
+{
+  const localId = "260730-flow-local-mode";
+  const localJournal = `---
+task: ${localId}
+title: "Локальный режим флоу"
+type: research
+mode: local
+tracker:
+source: текст в журнале
+stage: implement
+stages_done: [intake, analyze, plan]
+open: []
+started: 2026-07-30T10:00
+updated: 2026-07-30T11:00
+---
+
+## Состояние · 2026-07-30 11:00
+
+**цель:** проверить флоу без трекера.
+**сделано:** журнал ведётся под локальным id.
+**следующий шаг:** 1. дописать правила этапов.
+`;
+  writeFileSync(join(volnaDir, "journal", `TASK-${localId}.md`), localJournal, "utf8");
+  writeFileSync(join(volnaDir, "state.json"),
+    JSON.stringify({ active: localId, updated: "2026-07-30T11:00" }), "utf8");
+
+  const head = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit",
+    prompt: "продолжаем" }));
+  check("локальный id в шапке: задача названа", head.includes(localId), head);
+
+  // Доставки у локальной задачи нет вовсе, поэтому push вне deliver - не нарушение процесса.
+  const p = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git push" } });
+  check("push при mode: local: гейт молчит", p.out === "" && p.code === 0, p.out);
+
+  // Запись журнала по этапу требуется в любом режиме: контекст уходит одинаково.
+  const g = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git commit -m \"260730-flow-local-mode правила этапов\"" } });
+  check("commit при mode: local без записи этапа: deny",
+    decision(g).permissionDecision === "deny", g.out);
+
+  // Локальный id, упомянутый в промпте при другой активной задаче, поднимает свой журнал.
+  write("implement", { sections: "\n## implement · итерация 1 · 2026-07-25 13:00\n**что:** правка\n**сделано:** собрано\n" });
+  const mention = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit",
+    prompt: `а что было по ${localId}?` }));
+  check("упомянутый локальный id: журнал найден",
+    mention.includes(`Про ${localId} есть журнал`), mention);
+  check("упомянутый локальный id: не обрезан до даты",
+    !mention.includes("Про 260730 есть"), mention);
 }
 
 // --- 7a. Гейт молчит, когда git идёт в стороннем репозитории -------------------

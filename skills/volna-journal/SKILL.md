@@ -45,11 +45,29 @@ description: Формат журнала работ .volna/journal/TASK-<id>.md 
 ## Frontmatter = состояние
 
 Поля и заполненный пример — в `templates/journal.template.md`: `task`, `title`, `type`
-(bug/story/task), `tracker`, `parent`, `fix_task` (появляется на `deliver`), `branch`, `repos`,
-`stage`, `stages_done`, `skipped` (`[{stage, reason}]`), `open`, `started`, `updated`.
+(bug/story/task/research), `mode` (tracker/local), `tracker`, `source`, `parent`, `fix_task`
+(появляется на `deliver`), `branch`, `repos`, `stage`, `stages_done`, `skipped`
+(`[{stage, reason}]`), `open`, `started`, `updated`.
 
 `stage`, `stages_done`, `open` обновляются **на каждом этапе** — их читает hook шапки
-(`hooks/preamble.mjs`) и гейт на commit.
+(`hooks/preamble.mjs`) и гейт на commit. `mode` читает тот же гейт: у локальной задачи push не
+блокируется, потому что этапа доставки у неё нет.
+
+## Идентификатор задачи
+
+**Задача трекера** — её номер: `task: 21571`, журнал `TASK-21571.md`.
+
+**Локальная задача** (исследование, разбор, временная работа — трекер не задействован) —
+`ГГММДД-<slug>`: дата начала работы плюс 2-4 ключевых слова латиницей в kebab-case,
+`task: 260730-flow-local-mode`, журнал `TASK-260730-flow-local-mode.md`. Дата берётся из строки
+шапки (`· сейчас`), как все метки журнала, а не из головы.
+
+- **slug составляет `intake`**, а не человек: он же показывает его в карточке. Пересобирать его
+  задним числом нельзя — id стоит в имени файла и в `state.json`;
+- дата и slug совпали с уже существующим журналом (два разбора одной темы в один день) —
+  суффикс `-2`, `-3`: перезаписывать чужой журнал нечем;
+- слова — по предмету работы, а не по действию: `260730-tfs-attachments-encoding` полезнее,
+  чем `260730-issledovanie` или `260730-fix-bug`.
 
 ## Время в метках: только из шапки, локальное
 

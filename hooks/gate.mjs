@@ -46,6 +46,8 @@ await runQuietly(async () => {
   }
 
   if (action === "push") {
+    // Локальная задача (mode: local): доставки в трекер нет, а журнал и знание пушить законно.
+    if (String(fm.mode || "").trim() === "local") return;
     // Коммит - первый шаг deliver, отдельного этапа commit нет; прежние имена «push-pr»
     // и «commit» терпим ради задач, начатых до объединения и переименования этапов.
     const delivery = ["deliver", "push-pr", "commit"];

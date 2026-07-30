@@ -61,11 +61,19 @@ await runQuietly(async () => {
   emitContext("UserPromptSubmit", lines.slice(0, MAX_LINES));
 });
 
-/** Первый номер задачи в промпте, отличный от активной. */
+/**
+ * Первый идентификатор задачи в промпте, отличный от активной: номер трекера (4-6 цифр)
+ * либо локальный id вида 260730-slug. Локальная форма проверяется первой - иначе от неё
+ * осталась бы одна дата, и журнал по ней не нашёлся бы.
+ */
 function mentionedTask(prompt, activeTask) {
   if (!prompt) return null;
-  const matches = String(prompt).match(/\b\d{4,6}\b/g);
-  if (!matches) return null;
+  const text = String(prompt);
+  const matches = [
+    ...(text.match(/\b\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*\b/gi) ?? []),
+    ...(text.match(/\b\d{4,6}\b/g) ?? []),
+  ];
+  if (!matches.length) return null;
   return matches.find((n) => n !== activeTask) ?? null;
 }
 
