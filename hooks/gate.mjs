@@ -10,7 +10,7 @@
  *
  * Нет активной задачи, нет .volna/, сопровождение заглушено - гейт молчит.
  */
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, relative } from "node:path";
 import { readHookInput, loadActive, runQuietly } from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
@@ -121,12 +121,17 @@ function isEmpty(v) {
 }
 
 /**
- * Куда дописывать секцию этапа: лог отдельным файлом, а у журналов до разделения - основной.
+ * Куда дописывать секцию этапа: найденный лог, а у журналов до разделения - файл состояния.
  * Признак старого формата: лога нет, а секции итераций лежат в самом файле состояния.
  */
 function relJournal(active) {
-  const legacy = !active.logPath && /^##\s+\S+\s+·\s+итерация\s+\d+/m.test(active.text);
-  return `.volna/journal/TASK-${active.task}${legacy ? "" : ".log"}.md`;
+  if (active.logPath) {
+    return `.volna/${relative(active.volnaDir, active.logPath).replace(/\\/g, "/")}`;
+  }
+  const legacy = /^##\s+\S+\s+·\s+итерация\s+\d+/m.test(active.text);
+  return legacy
+    ? `.volna/journal/TASK-${active.task}.md`
+    : `.volna/journal/logs/TASK-${active.task}.log.md`;
 }
 
 /** Отказ с объяснением: exit 0 + permissionDecision, чтобы причина дошла до модели и человека. */

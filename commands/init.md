@@ -9,7 +9,7 @@ argument-hint: [путь к рабочему репозиторию]
 1. **Проверь, что уже есть.** `.volna/project.md`, `.env`, правила в `.gitignore`.
    Существующие файлы **не перезаписывай** — дополняй по согласию человека.
 2. **Создай отсутствующее:**
-   - `.volna/journal/`, `.volna/knowledge/`;
+   - `.volna/journal/`, `.volna/journal/logs/` (там лежат логи итераций), `.volna/knowledge/`;
    - `.volna/knowledge/INDEX.md` из `skills/volna-journal/templates/knowledge-index.template.md`
      — без указателя этапы не найдут накопленное знание;
    - `.volna/feedback.md` из `skills/volna-journal/templates/feedback.template.md` — сюда этап
@@ -18,7 +18,8 @@ argument-hint: [путь к рабочему репозиторию]
    - `.env` из `.env.example` «Волны».
 3. **Дополни `.gitignore`** правилами: `.env`, `.env.local`, `.volna/state.json`,
    `.volna/journal/`, `.volna/feedback.md`, `.volna/project.local.md`. Уже присутствующие не
-   дублируй. `.volna/knowledge/` и `.volna/project.md` **коммитятся** — в игнор не добавлять.
+   дублируй. Правило на каталог `journal/` покрывает и логи в `journal/logs/` — отдельного
+   правила для них не нужно. `.volna/knowledge/` и `.volna/project.md` **коммитятся** — в игнор не добавлять.
 4. **Помоги заполнить.** Спроси по очереди то, что нельзя определить самому: адрес трекера и
    проект, путь к файлу с PAT, пути репозиториев, корень эталона, команды сборки и тестов.
    Что можешь — определи сам и покажи на подтверждение: имя текущего репозитория, наличие

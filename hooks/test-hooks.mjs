@@ -223,7 +223,8 @@ stages_done: [intake, analyze]
 // --- 6a. Журнал из двух файлов: состояние отдельно, лог отдельно ---------------
 {
   const statePath = join(volnaDir, "journal", "TASK-21571.md");
-  const logPath = join(volnaDir, "journal", "TASK-21571.log.md");
+  const logPath = join(volnaDir, "journal", "logs", "TASK-21571.log.md");
+  mkdirSync(join(volnaDir, "journal", "logs"), { recursive: true });
   const stateFile = (summary) => `---
 task: 21571
 title: "Клапан не рисуется при зеркале"
@@ -258,8 +259,8 @@ updated: ${summary.replace(" ", "T")}
   const g = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
     tool_input: { command: "git commit -m \"21571 правка\"" } });
   check("два файла: commit без записи этапа -> deny", decision(g).permissionDecision === "deny", g.out);
-  check("два файла: deny указывает TASK-21571.log.md",
-    /TASK-21571\.log\.md/.test(decision(g).permissionDecisionReason || ""), g.out);
+  check("два файла: deny указывает journal/logs/TASK-21571.log.md",
+    /journal\/logs\/TASK-21571\.log\.md/.test(decision(g).permissionDecisionReason || ""), g.out);
 
   appendFileSync(logPath, "\n## implement · итерация 1 · 2026-07-25 13:00\n**что:** правка\n", "utf8");
   const g2 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
@@ -271,7 +272,17 @@ updated: ${summary.replace(" ", "T")}
   const c2 = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "правим" }));
   check("два файла: отставшее «Состояние» замечено", /отстало от лога/.test(c2), c2);
 
+  // Прежняя раскладка (0.1.26): лог лежал рядом с состоянием, а не в logs/ - читается как есть.
   rmSync(logPath, { force: true });
+  const besideLog = join(volnaDir, "journal", "TASK-21571.log.md");
+  writeFileSync(besideLog,
+    "# 21571 — лог итераций\n\n## implement · итерация 1 · 2026-07-25 13:00\n**что:** правка\n", "utf8");
+  const gOld = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git commit -m \"21571 правка\"" } });
+  check("лог рядом с состоянием (0.1.26): commit проходит", gOld.out === "" && gOld.code === 0, gOld.out);
+
+  writeFileSync(statePath, stateFile("2026-07-25 12:30"), "utf8");
+  rmSync(besideLog, { force: true });
   write("implement", { sections: "\n## implement · итерация 1 · 2026-07-25 13:00\n**что:** правка\n**сделано:** собрано\n" });
 }
 

@@ -131,12 +131,13 @@ if (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) {
 }
 
 $volnaDir = Join-Path $Path '.volna'
-foreach ($dir in @($volnaDir, (Join-Path $volnaDir 'journal'), (Join-Path $volnaDir 'knowledge'))) {
+$journalDir = Join-Path $volnaDir 'journal'
+foreach ($dir in @($volnaDir, $journalDir, (Join-Path $journalDir 'logs'), (Join-Path $volnaDir 'knowledge'))) {
     if (-not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir | Out-Null
     }
 }
-Write-Ok '.volna/{journal,knowledge}'
+Write-Ok '.volna/{journal/logs,knowledge}'
 
 $indexMd = Join-Path (Join-Path $volnaDir 'knowledge') 'INDEX.md'
 if (Test-Path -LiteralPath $indexMd) {

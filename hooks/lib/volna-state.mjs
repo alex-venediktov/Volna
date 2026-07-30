@@ -99,10 +99,18 @@ function stripQuotes(s) {
     : t;
 }
 
+/** Где искать лог итераций: свой каталог, затем прежние раскладки. Порядок = приоритет. */
+function logCandidates(volnaDir, taskId) {
+  return [
+    join(volnaDir, "journal", "logs", `TASK-${taskId}.log.md`),
+    join(volnaDir, "journal", `TASK-${taskId}.log.md`),
+  ];
+}
+
 /**
- * Журнал активной задачи: состояние (frontmatter + «Состояние») из TASK-<id>.md, лог итераций
- * из TASK-<id>.log.md. Журналы, начатые до разделения на два файла, держат лог в основном
- * файле - тогда секции берутся оттуда, и старая задача продолжает работать без миграции.
+ * Журнал активной задачи: состояние (frontmatter + «Состояние») из journal/TASK-<id>.md,
+ * лог итераций из journal/logs/TASK-<id>.log.md. Прежние раскладки читаются как есть: лог рядом
+ * с состоянием (0.1.26) и однофайловый журнал, где секции лежат в самом файле состояния.
  */
 export function readJournal(volnaDir, taskId) {
   const path = join(volnaDir, "journal", `TASK-${taskId}.md`);
@@ -114,14 +122,16 @@ export function readJournal(volnaDir, taskId) {
     return null;
   }
   const fm = parseFrontmatter(text);
-  const candidate = join(volnaDir, "journal", `TASK-${taskId}.log.md`);
   let logText = "";
-  if (existsSync(candidate)) {
+  let logPath = null;
+  for (const candidate of logCandidates(volnaDir, taskId)) {
+    if (!existsSync(candidate)) continue;
     try {
       logText = readFileSync(candidate, "utf8");
-    } catch { /* лога нет или не читается - работаем по состоянию */ }
+      logPath = logText ? candidate : null;
+      break;
+    } catch { /* лог не читается - работаем по состоянию */ }
   }
-  const logPath = logText ? candidate : null;
   const sections = [...(logText || text).matchAll(/^##\s+([^\s·]+)/gm)].map((m) => m[1]);
   // Возраст журнала - по самой свежей из двух записей: запись этапа идёт в лог, резюме в состояние.
   let mtimeMs = 0;
