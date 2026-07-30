@@ -38,7 +38,7 @@ await runQuietly(async () => {
     }
 
     // Отставшее резюме опаснее его отсутствия: оно читается как актуальное.
-    const lag = summaryLag(active.text);
+    const lag = summaryLag(active.text, active.logText);
     if (lag === "missing") {
       lines.push("  в журнале нет секции «## Состояние» - после /compact придётся читать лог целиком");
     } else if (lag) {

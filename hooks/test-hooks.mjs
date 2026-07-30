@@ -2,7 +2,7 @@
  * Прогон hooks «Волны» на синтетическом .volna: проверяем шапку, гейт и тихое поведение
  * при отсутствии состояния. Запуск: node test-hooks.mjs <корень Волны>
  */
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, appendFileSync, rmSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -218,6 +218,61 @@ stages_done: [intake, analyze]
   const g2 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
     tool_input: { command: "git commit -m \"21571 правка\"" } });
   check("commit с записью этапа: пропуск", g2.out === "" && g2.code === 0, g2.out);
+}
+
+// --- 6a. Журнал из двух файлов: состояние отдельно, лог отдельно ---------------
+{
+  const statePath = join(volnaDir, "journal", "TASK-21571.md");
+  const logPath = join(volnaDir, "journal", "TASK-21571.log.md");
+  const stateFile = (summary) => `---
+task: 21571
+title: "Клапан не рисуется при зеркале"
+type: bug
+mode: tracker
+stage: implement
+stages_done: [intake, analyze]
+open: []
+started: 2026-07-25T10:12
+updated: ${summary.replace(" ", "T")}
+---
+
+# 21571 — Клапан не рисуется при зеркале
+
+## Состояние · ${summary}
+
+**цель:** клапан должен рисоваться на зеркальном изделии.
+**сделано:** воспроизведено на позиции 3 заказа 100500.
+**следующий шаг:** 1. снять радиус дуги с эталона.
+`;
+  writeFileSync(statePath, stateFile("2026-07-25 12:30"), "utf8");
+  writeFileSync(logPath,
+    "# 21571 — лог итераций\n\n## intake · итерация 1 · 2026-07-25 10:12\n**что:** принята задача.\n", "utf8");
+  writeFileSync(join(volnaDir, "state.json"),
+    JSON.stringify({ active: "21571", updated: "2026-07-25T12:30" }), "utf8");
+
+  const c = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "правим" }));
+  check("два файла: шапка печатает задачу и этап", c.includes("21571") && c.includes("implement"), c);
+  check("два файла: свежее резюме не считается отставшим", !c.includes("отстало"), c);
+
+  // Секции этапа нет в логе - коммит не пропускаем, и в отказе назван именно лог-файл.
+  const g = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git commit -m \"21571 правка\"" } });
+  check("два файла: commit без записи этапа -> deny", decision(g).permissionDecision === "deny", g.out);
+  check("два файла: deny указывает TASK-21571.log.md",
+    /TASK-21571\.log\.md/.test(decision(g).permissionDecisionReason || ""), g.out);
+
+  appendFileSync(logPath, "\n## implement · итерация 1 · 2026-07-25 13:00\n**что:** правка\n", "utf8");
+  const g2 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git commit -m \"21571 правка\"" } });
+  check("два файла: commit с записью в логе -> пропуск", g2.out === "" && g2.code === 0, g2.out);
+
+  // Резюме в одном файле, последняя запись в другом: отставание обязано находиться между файлами.
+  appendFileSync(logPath, "\n## implement · итерация 2 · 2026-07-25 15:00\n**что:** ещё правка\n", "utf8");
+  const c2 = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "правим" }));
+  check("два файла: отставшее «Состояние» замечено", /отстало от лога/.test(c2), c2);
+
+  rmSync(logPath, { force: true });
+  write("implement", { sections: "\n## implement · итерация 1 · 2026-07-25 13:00\n**что:** правка\n**сделано:** собрано\n" });
 }
 
 // --- 7. Гейт push: этап доставки не начат -> deny; начат + bug без fix_task -> warn

@@ -120,8 +120,13 @@ function isEmpty(v) {
   return String(v).trim() === "";
 }
 
+/**
+ * Куда дописывать секцию этапа: лог отдельным файлом, а у журналов до разделения - основной.
+ * Признак старого формата: лога нет, а секции итераций лежат в самом файле состояния.
+ */
 function relJournal(active) {
-  return `.volna/journal/TASK-${active.task}.md`;
+  const legacy = !active.logPath && /^##\s+\S+\s+·\s+итерация\s+\d+/m.test(active.text);
+  return `.volna/journal/TASK-${active.task}${legacy ? "" : ".log"}.md`;
 }
 
 /** Отказ с объяснением: exit 0 + permissionDecision, чтобы причина дошла до модели и человека. */

@@ -99,7 +99,11 @@ function stripQuotes(s) {
     : t;
 }
 
-/** Журнал активной задачи: путь, frontmatter, заголовки секций, mtime. */
+/**
+ * Журнал активной задачи: состояние (frontmatter + «Состояние») из TASK-<id>.md, лог итераций
+ * из TASK-<id>.log.md. Журналы, начатые до разделения на два файла, держат лог в основном
+ * файле - тогда секции берутся оттуда, и старая задача продолжает работать без миграции.
+ */
 export function readJournal(volnaDir, taskId) {
   const path = join(volnaDir, "journal", `TASK-${taskId}.md`);
   if (!existsSync(path)) return null;
@@ -110,12 +114,24 @@ export function readJournal(volnaDir, taskId) {
     return null;
   }
   const fm = parseFrontmatter(text);
-  const sections = [...text.matchAll(/^##\s+([^\s·]+)/gm)].map((m) => m[1]);
+  const candidate = join(volnaDir, "journal", `TASK-${taskId}.log.md`);
+  let logText = "";
+  if (existsSync(candidate)) {
+    try {
+      logText = readFileSync(candidate, "utf8");
+    } catch { /* лога нет или не читается - работаем по состоянию */ }
+  }
+  const logPath = logText ? candidate : null;
+  const sections = [...(logText || text).matchAll(/^##\s+([^\s·]+)/gm)].map((m) => m[1]);
+  // Возраст журнала - по самой свежей из двух записей: запись этапа идёт в лог, резюме в состояние.
   let mtimeMs = 0;
-  try {
-    mtimeMs = statSync(path).mtimeMs;
-  } catch { /* не критично */ }
-  return { path, fm, sections, mtimeMs, text };
+  for (const p of [path, logPath]) {
+    if (!p) continue;
+    try {
+      mtimeMs = Math.max(mtimeMs, statSync(p).mtimeMs);
+    } catch { /* не критично */ }
+  }
+  return { path, logPath, fm, sections, mtimeMs, text, logText };
 }
 
 /**
@@ -138,11 +154,15 @@ export function lastLogStamp(text) {
   return all.length ? all[all.length - 1][1].trim() : null;
 }
 
-/** Резюме отстало от лога: секции нет вовсе или её метка старше последней записи. */
-export function summaryLag(text) {
+/**
+ * Резюме отстало от лога: секции нет вовсе или её метка старше последней записи.
+ * Лог передаётся отдельным текстом; пустой означает журнал до разделения на два файла,
+ * где секции лежат в том же файле, что и резюме.
+ */
+export function summaryLag(text, logText = "") {
   const summary = readSummary(text);
   if (!summary) return "missing";
-  const last = lastLogStamp(text);
+  const last = lastLogStamp(logText || text);
   if (!last) return null;
   // Метка не читается как дата - свежесть недоказуема, поэтому просим перезаписать.
   if (!/^\d{4}-\d{2}-\d{2}[ T\t]+\d{1,2}:\d{2}/.test(summary.stamp)) return last;

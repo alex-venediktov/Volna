@@ -39,14 +39,14 @@ await runQuietly(async () => {
     lines.push(`Журнал не обновлялся ${formatAge(mins)} - сверь, соответствует ли он реальности.`);
   }
 
-  const lag = summaryLag(active.text);
+  const lag = summaryLag(active.text, active.logText);
   if (lag === "missing") {
     lines.push("В журнале нет секции «## Состояние» - восстановление пойдёт по логу целиком, это дорого.");
   } else if (lag) {
     lines.push(`«Состояние» отстало от лога (последняя запись ${lag}) - сначала перепиши резюме.`);
   }
 
-  lines.push("Читай frontmatter и «Состояние»; секции лога - только по ссылке из резюме.");
+  lines.push("Читай состояние задачи целиком; лог итераций (TASK-<id>.log.md) - только по ссылке из резюме.");
   lines.push("Продолжить с текущего этапа или закрыть задачу: /volna:status, /volna:close.");
   emitContext("SessionStart", lines);
 });
