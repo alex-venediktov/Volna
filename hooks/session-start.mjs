@@ -3,7 +3,7 @@
  * SessionStart: если есть активная задача - напомнить, где остановились.
  * Нет задачи, нет .volna/, сопровождение заглушено - молчание (обычный чат не трогаем).
  */
-import { readHookInput, loadActive, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, truncate, localStamp, STAGES }
+import { readHookInput, loadActive, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, truncate, localStamp, STAGES }
   from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
@@ -44,6 +44,16 @@ await runQuietly(async () => {
     lines.push("В журнале нет секции «## Состояние» - восстановление пойдёт по логу целиком, это дорого.");
   } else if (lag) {
     lines.push(`«Состояние» отстало от лога (последняя запись ${lag}) - сначала перепиши резюме.`);
+  }
+
+  const issues = summaryIssues(active.text);
+  if (issues?.oversize) {
+    lines.push(`«Состояние» разрослось до ${Math.round(issues.size / 1024)} КБ вместо экрана: ` +
+      "историю унеси в лог, «где что лежит и как запускается» - в .volna/knowledge/.");
+  }
+  if (issues?.missing.length) {
+    lines.push(`В «Состоянии» нет подпунктов ${issues.missing.map((m) => `**${m}:**`).join(", ")} - ` +
+      "назови их ровно так, иначе ни hooks, ни следующая сессия их не найдут.");
   }
 
   lines.push("Читай состояние задачи целиком; лог итераций (TASK-<id>.log.md) - только по ссылке из резюме.");

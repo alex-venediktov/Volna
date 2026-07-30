@@ -17,7 +17,7 @@
 | Волна | Содержание | Статус |
 |---|---|---|
 | **W1** | флоу и журнал: скиллы, детали 13 этапов, шаблоны, команды | **проверено на живой задаче**, замечания влиты |
-| **W2** | hooks: шапка сессии, гейт на commit/push | **проверено в живой работе**, 56 проверок проходят |
+| **W2** | hooks: шапка сессии, гейт на commit/push | **проверено в живой работе**, 60 проверок проходят |
 | **W3** | интеграции: CLI над трекером, `/volna:recall` | **проверено в живой работе**, 84 проверки проходят |
 | **W4** | onboarding для команды, документ по стоимости, ограничения | **закрыто**, версия закреплена тегом `v0.1.10` |
 
@@ -224,7 +224,7 @@ commands/                          по одной на этап (task, analyze,
                                    cleanup, capture) плюс служебные: init, doctor,
                                    status, skip, journal, checkpoint, recall, off, on
 hooks/                             шапка сессии, гейт на commit/push
-hooks/test-hooks.mjs               56 проверок hooks на синтетическом .volna
+hooks/test-hooks.mjs               60 проверок hooks на синтетическом .volna
 lib/tfs-client.mjs                 клиент REST трекера (TFS / Azure DevOps Server)
 lib/env.mjs                        чтение .env без зависимостей
 bin/volna-tfs.mjs                  CLI над трекером: whoami/get/query/states/fields/attachments/

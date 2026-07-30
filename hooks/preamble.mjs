@@ -7,7 +7,7 @@
  * добавляется ссылка и три строки резюме. Только точное совпадение по номеру - никакого
  * поиска по смыслу: он стоил бы токенов на каждом сообщении.
  */
-import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, localStamp, STAGES }
+import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, localStamp, STAGES }
   from "./lib/volna-state.mjs";
 
 const MAX_LINES = 20;
@@ -43,6 +43,17 @@ await runQuietly(async () => {
       lines.push("  в журнале нет секции «## Состояние» - после /compact придётся читать лог целиком");
     } else if (lag) {
       lines.push(`  «Состояние» отстало от лога (последняя запись ${lag}) - перепиши его`);
+    }
+
+    // Резюме размером с лог и подпункты не по формату ломают восстановление контекста молча.
+    const issues = summaryIssues(active.text);
+    if (issues?.oversize) {
+      lines.push(`  «Состояние» разрослось (${Math.round(issues.size / 1024)} КБ) - ужми до экрана:` +
+        " история в лог, «где что лежит» в knowledge");
+    }
+    if (issues?.missing.length) {
+      lines.push(`  в «Состоянии» нет подпунктов ${issues.missing.map((m) => `«${m}»`).join(", ")}` +
+        " - в этом формате их никто не найдёт");
     }
   }
 

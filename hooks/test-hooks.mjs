@@ -2,7 +2,7 @@
  * Прогон hooks «Волны» на синтетическом .volna: проверяем шапку, гейт и тихое поведение
  * при отсутствии состояния. Запуск: node test-hooks.mjs <корень Волны>
  */
-import { mkdirSync, writeFileSync, appendFileSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -218,6 +218,34 @@ stages_done: [intake, analyze]
   const g2 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
     tool_input: { command: "git commit -m \"21571 правка\"" } });
   check("commit с записью этапа: пропуск", g2.out === "" && g2.code === 0, g2.out);
+}
+
+// --- 6b. Разросшееся «Состояние» и подпункты не по шаблону ---------------------
+{
+  // Резюме на 8 КБ с подпунктами «цель задачи» и «### Следующий шаг» - обе проверки обязаны сработать.
+  const fat = "**цель задачи:** сверка видов с эталоном.\n" +
+    `**решение человека:** вариант Б.\n${"**установлено:** длинная выкладка про эталон. ".repeat(200)}\n` +
+    "### Следующий шаг\n1. разобрать вид логотипа.\n";
+  write("implement", { summary: "2026-07-25 12:30" });
+  const statePath = join(volnaDir, "journal", "TASK-21571.md");
+  const original = readFileSync(statePath, "utf8");
+  writeFileSync(statePath,
+    original.replace(/## Состояние · 2026-07-25 12:30[\s\S]*?(?=\n## intake)/, `## Состояние · 2026-07-25 12:30\n\n${fat}`),
+    "utf8");
+
+  const c = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "правим" }));
+  check("разросшееся «Состояние»: шапка называет размер", /разрослось \(\d+ КБ\)/.test(c), c);
+  check("подпункты не по шаблону: шапка называет пропавшие",
+    /нет подпунктов .*цель.*сделано.*следующий шаг/.test(c), c);
+
+  const s = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
+  check("SessionStart: сказано, куда унести разросшееся", /knowledge/.test(s) && /КБ вместо экрана/.test(s), s);
+
+  // Нормальное резюме по шаблону - ни одного из двух предупреждений.
+  write("implement");
+  const ok = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "правим" }));
+  check("резюме по шаблону: предупреждений нет",
+    !/разрослось/.test(ok) && !/нет подпунктов/.test(ok), ok);
 }
 
 // --- 6a. Журнал из двух файлов: состояние отдельно, лог отдельно ---------------

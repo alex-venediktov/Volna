@@ -183,6 +183,30 @@ function normStamp(s) {
   return String(s).replace(/[T\t ]+/g, " ").trim();
 }
 
+/** Подпункты «Состояния», без которых секция не выполняет свою работу (скилл volna-journal). */
+export const SUMMARY_FIELDS = ["цель", "сделано", "следующий шаг"];
+
+/**
+ * Потолок «Состояния» - примерно экран текста. Выше секция перестаёт быть резюме: её читают
+ * при каждом возврате к задаче, и разросшаяся съедает ровно то, ради чего лог вынесли в свой файл.
+ */
+export const SUMMARY_LIMIT = 6000;
+
+/**
+ * Что не так с «Состоянием»: размер сверх потолка и подпункты, названные не по формату.
+ * Подпункт с другим именем hooks не находят молча - предупреждение дешевле такой тишины.
+ */
+export function summaryIssues(text) {
+  const summary = readSummary(text);
+  if (!summary) return null;
+  const size = summary.body.length;
+  return {
+    size,
+    oversize: size > SUMMARY_LIMIT,
+    missing: SUMMARY_FIELDS.filter((name) => !summaryField(summary.body, name)),
+  };
+}
+
 /**
  * Значение подпункта «**имя:** ...» из тела секции; многострочное склеивается в строку.
  * Без флага «m»: с ним «$» означал бы конец строки, и подпункт со значением на следующей
