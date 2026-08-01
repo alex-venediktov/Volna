@@ -101,18 +101,25 @@ export function readState(volnaDir) {
 /**
  * Минимальный парсер YAML-frontmatter: скалярры, inline-списки [a, b] и блочные списки.
  * Полного YAML тут не нужно - формат журнала фиксирован шаблоном.
+ *
+ * Поле без значения (`branch:` до создания ветки) отдаётся пустой СТРОКОЙ, а не пустым массивом:
+ * массив истинен, и проверка вида `if (fm.branch)` пропускала пустое поле дальше - шапка печатала
+ * лишний разделитель на каждой задаче, где ветки ещё нет. Массив остаётся только там, где список
+ * действительно есть: inline `[a, b]` или блочный хотя бы с одним элементом.
  */
 export function parseFrontmatter(text) {
   const out = {};
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   if (!m) return out;
   const lines = m[1].split(/\r?\n/);
+  const pendingLists = new Set();   // ключи, под которые массив заведён авансом
   let listKey = null;
   for (const line of lines) {
     if (!line.trim() || line.trim().startsWith("#")) continue;
     const item = /^\s*-\s+(.*)$/.exec(line);
     if (item && listKey) {
       out[listKey].push(stripQuotes(stripComment(item[1])));
+      pendingLists.delete(listKey);
       continue;
     }
     const kv = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(line);
@@ -120,10 +127,12 @@ export function parseFrontmatter(text) {
     const key = kv[1];
     const value = stripComment(kv[2]).trim();
     if (value === "") {
-      out[key] = [];        // возможно блочный список; если ничего не придёт - останется []
+      out[key] = [];        // возможно блочный список; элементы не пришли - станет пустой строкой
+      pendingLists.add(key);
       listKey = key;
       continue;
     }
+    pendingLists.delete(key);
     listKey = null;
     if (value.startsWith("[")) {
       out[key] = value.replace(/^\[|\]$/g, "").split(",")
@@ -132,6 +141,8 @@ export function parseFrontmatter(text) {
       out[key] = stripQuotes(value);
     }
   }
+  // список так и не наполнился - значит это было пустое скалярное поле
+  for (const key of pendingLists) out[key] = "";
   return out;
 }
 

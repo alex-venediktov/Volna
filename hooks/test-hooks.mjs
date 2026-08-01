@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, existsS
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { readProfile, hasTracker, isPlaceholder } from "./lib/volna-state.mjs";
+import { readProfile, hasTracker, isPlaceholder, parseFrontmatter } from "./lib/volna-state.mjs";
 
 const volnaRoot = process.argv[2] || process.cwd();
 const sandbox = join(tmpdir(), "claude", "volna-hooks-test");
@@ -503,6 +503,42 @@ updated: 2026-07-30T11:00
   check("незаполненный профиль: push вне deliver всё равно блокируется",
     decision(p4).permissionDecision === "deny", p4.out);
   rmSync(projectMd, { force: true });
+}
+
+// --- 7e. Пустое поле frontmatter - строка, а не пустой массив ------------------
+{
+  // Пустой массив истинен, поэтому `if (fm.branch)` пропускал незаполненное поле, и шапка
+  // печатала разделитель без значения на каждой задаче до создания ветки.
+  const fm = parseFrontmatter([
+    "---",
+    "task: 21571",
+    "branch:",
+    "repos: []",
+    "open:",
+    "  - первый пункт",
+    "skipped:",
+    "---",
+  ].join("\n"));
+  check("пустое поле: строка, а не []", fm.branch === "", JSON.stringify(fm.branch));
+  check("пустое поле: не проходит проверку на истинность", !fm.branch, JSON.stringify(fm.branch));
+  check("inline [] остаётся массивом", Array.isArray(fm.repos) && fm.repos.length === 0,
+    JSON.stringify(fm.repos));
+  check("блочный список читается", Array.isArray(fm.open) && fm.open[0] === "первый пункт",
+    JSON.stringify(fm.open));
+  check("пустой блочный список: тоже строка", fm.skipped === "", JSON.stringify(fm.skipped));
+
+  const noBranch = journal("intake", { done: [] }).replace(
+    "branch: bugfix/21571-klapan-mirror", "branch:");
+  writeFileSync(join(volnaDir, "journal", "TASK-21571.md"), noBranch, "utf8");
+  writeFileSync(join(volnaDir, "state.json"), JSON.stringify({ active: "21571" }), "utf8");
+  const head = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit",
+    prompt: "продолжаем" }));
+  check("шапка без ветки: нет пустого разделителя", !/·\s+·/.test(head), head);
+  check("шапка без ветки: задача и этап на месте",
+    head.includes("21571") && head.includes("intake"), head);
+
+  const start = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
+  check("SessionStart без ветки: нет пустого разделителя", !/·\s+·/.test(start), start);
 }
 
 // --- 8. Гейт не трогает посторонние команды -----------------------------------
