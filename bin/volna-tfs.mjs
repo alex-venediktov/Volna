@@ -707,9 +707,10 @@ async function cmdPrCreate(client, args, flags, log, err, readFile, env) {
   const title = String(flags.title ?? "").trim();
   if (!title) { err("Нужен заголовок: --title «<номер задачи>: суть правки»"); return 1; }
 
-  const target = String(flags.target ?? env?.TFS_TARGET_BRANCH ?? "").trim();
+  // TFS_TARGET_BRANCH - прежнее имя той же настройки: ветка PR к трекеру отношения не имеет
+  const target = String(flags.target ?? env?.TARGET_BRANCH ?? env?.TFS_TARGET_BRANCH ?? "").trim();
   if (!target) {
-    err("Не задана целевая ветка: укажи --target <ветка> или заполни TFS_TARGET_BRANCH в .env");
+    err("Не задана целевая ветка: укажи --target <ветка> или заполни TARGET_BRANCH в .env");
     return 1;
   }
 
@@ -956,7 +957,7 @@ function usage() {
     "HTML собирается сам, поданные теги экранируются и видны в трекере текстом.",
     "",
     "Любая пишущая команда с --dry-run печатает, что собиралась изменить, и не отправляет ничего.",
-    "Адреса, целевая ветка PR (TFS_TARGET_BRANCH) и путь к файлу PAT - в .env рабочего",
+    "Адреса, целевая ветка PR (TARGET_BRANCH) и путь к файлу PAT - в .env рабочего",
     "репозитория (шаблон .env.example).",
   ].join("\n");
 }

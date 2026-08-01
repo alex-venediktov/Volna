@@ -857,7 +857,7 @@ const FOUND_FIELDS = {
       readFile: () => Buffer.from("Порт по эталону, строки 15832-16246.", "utf8") });
   const [, , opts] = client.calls.find(([m]) => m === "createPullRequest") ?? [];
   const t = c.text();
-  check("pr create: целевая ветка берётся из TFS_TARGET_BRANCH", opts?.target === "main", JSON.stringify(opts));
+  check("pr create: прежнее имя TFS_TARGET_BRANCH ещё читается", opts?.target === "main", JSON.stringify(opts));
   check("pr create: описание читается файлом как UTF8",
     opts?.description === "Порт по эталону, строки 15832-16246.", JSON.stringify(opts?.description));
   check("pr create: без --work-item подсказана команда привязки",
@@ -865,12 +865,20 @@ const FOUND_FIELDS = {
 }
 
 {
+  const c0 = capture();
+  const client0 = fakeClient(WI);
+  await run(["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть"],
+    { client: client0, log: c0.log, err: c0.err, env: { TARGET_BRANCH: "develop" } });
+  const [, , opts0] = client0.calls.find(([m]) => m === "createPullRequest") ?? [];
+  check("pr create: целевая ветка берётся из TARGET_BRANCH", opts0?.target === "develop",
+    JSON.stringify(opts0));
+
   const c = capture();
   const client = fakeClient(WI);
   const code = await run(["pr", "create", "backend", "feature/2001_суть", "--title", "2001: суть"],
     { client, log: c.log, err: c.err, env: {} });
   check("pr create: без целевой ветки ничего не создаётся",
-    code === 1 && client.calls.length === 0 && /TFS_TARGET_BRANCH/.test(c.errText()), c.errText());
+    code === 1 && client.calls.length === 0 && /TARGET_BRANCH/.test(c.errText()), c.errText());
 
   const c2 = capture();
   const client2 = fakeClient(WI);

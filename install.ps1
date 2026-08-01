@@ -160,7 +160,7 @@ if (Test-Path -LiteralPath $projectMd) {
     Write-Skip '.volna/project.md уже есть - не тронут'
 } else {
     Write-Utf8NoBom $projectMd (Get-Template 'skills/volna-flow/templates/project.template.md')
-    Write-Ok '.volna/project.md создан из шаблона - ЗАПОЛНИТЬ команды и конвенции'
+    Write-Ok '.volna/project.md создан из шаблона - ЗАПОЛНИТЬ секцию «Профиль» (там плейсхолдеры)'
 }
 
 $envFile = Join-Path $Path '.env'
@@ -204,8 +204,11 @@ Write-Skip '.volna/knowledge/ и .volna/project.md - коммитятся (ко�
 
 Write-Host ''
 Write-Host 'Готово. Дальше:' -ForegroundColor White
-Write-Host "  1. заполнить $envFile (адрес трекера, PAT-файл, пути репозиториев и эталона)"
-Write-Host "  2. заполнить $projectMd (команды сборки и тестов, конвенции)"
-Write-Host '  3. в Claude Code:  /volna:doctor   - проверка настроек'
+Write-Host "  1. заполнить секцию «Профиль» в $projectMd (репозитории, трекер, доставка, эталон)"
+Write-Host '     - в шаблоне стоят плейсхолдеры <нет|tfs>; пока они там, флоу будет переспрашивать'
+Write-Host '     - команда /volna:init спросит по строке и запишет ответы сама'
+Write-Host "  2. заполнить $projectMd дальше (команды сборки и тестов, конвенции)"
+Write-Host "  3. заполнить $envFile - только то, что просит профиль (целевая ветка, трекер, эталон)"
+Write-Host '  4. в Claude Code:  /volna:doctor   - проверка настроек'
 Write-Host '                     /volna:task <id> - взять первую задачу'
 Write-Host ''

@@ -11,7 +11,7 @@
  * Нет активной задачи, нет .volna/, сопровождение заглушено - гейт молчит.
  */
 import { dirname, resolve, relative } from "node:path";
-import { readHookInput, loadActive, runQuietly } from "./lib/volna-state.mjs";
+import { readHookInput, loadActive, runQuietly, readProfile, hasTracker } from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
   const input = await readHookInput();
@@ -45,9 +45,13 @@ await runQuietly(async () => {
     }
   }
 
+  const tracker = hasTracker(readProfile(active.volnaDir));
+
   if (action === "push") {
     // Локальная задача (mode: local): доставки в трекер нет, а журнал и знание пушить законно.
     if (String(fm.mode || "").trim() === "local") return;
+    // Проект без трекера («трекер: нет» в профиле) - тот же случай, только на все задачи сразу.
+    if (!tracker) return;
     // Коммит - первый шаг deliver, отдельного этапа commit нет; прежние имена «push-pr»
     // и «commit» терпим ради задач, начатых до объединения и переименования этапов.
     const delivery = ["deliver", "push-pr", "commit"];

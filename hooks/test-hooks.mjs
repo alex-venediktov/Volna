@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, existsS
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
+import { readProfile, hasTracker, isPlaceholder } from "./lib/volna-state.mjs";
 
 const volnaRoot = process.argv[2] || process.cwd();
 const sandbox = join(tmpdir(), "claude", "volna-hooks-test");
@@ -428,6 +429,80 @@ updated: 2026-07-30T11:00
     tool_input: { command: "cd подпроект && git push" } });
   check("push в репозитории внутри рабочего каталога: гейт работает",
     decision(nested).permissionDecision === "deny", nested.out);
+}
+
+// --- 7c. Граница репозитория: .volna соседнего проекта не подхватывается -------
+{
+  write("implement", { sections: "\n## implement · итерация 1 · 2026-07-25 13:00\n**что:** правка\n" });
+
+  // Репозиторий внутри песочницы: свой .git, своего .volna нет. Выше по дереву .volna есть,
+  // но он принадлежит другому проекту - «Волна» туда подниматься не должна.
+  const own = join(sandbox, "соседний-репозиторий");
+  mkdirSync(join(own, ".git"), { recursive: true });
+
+  for (const hook of ["session-start.mjs", "preamble.mjs"]) {
+    const r = run(hook, { cwd: own, hook_event_name: "X", prompt: "продолжаем" });
+    check(`репозиторий без .volna: ${hook} молчит`, r.out === "", r.out);
+  }
+  const g = run("gate.mjs", { cwd: own, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git commit -m правка" } });
+  check("репозиторий без .volna: гейт не вмешивается", g.out === "" && g.code === 0, g.out);
+
+  // Подкаталог того же репозитория - тот же случай: граница считается от корня с .git.
+  const deep = join(own, "src", "модуль");
+  mkdirSync(deep, { recursive: true });
+  const r2 = run("preamble.mjs", { cwd: deep, hook_event_name: "UserPromptSubmit", prompt: "тест" });
+  check("подкаталог чужого репозитория: шапки нет", r2.out === "", r2.out);
+}
+
+// --- 7d. Профиль проекта: «трекер: нет» снимает гейт с push --------------------
+{
+  write("implement", { done: ["intake", "analyze"] });
+  const projectMd = join(volnaDir, "project.md");
+
+  writeFileSync(projectMd, "# Настройки\n\n## Профиль\n\n- трекер: нет\n- доставка: commit+push\n\n## Команды\n", "utf8");
+  const p = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git push" } });
+  check("профиль «трекер: нет»: push не блокируется", p.out === "" && p.code === 0, p.out);
+
+  writeFileSync(projectMd, "## Профиль\n\n- трекер: tfs\n", "utf8");
+  const p2 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git push" } });
+  check("профиль «трекер: tfs»: push вне deliver блокируется",
+    decision(p2).permissionDecision === "deny", p2.out);
+
+  rmSync(projectMd, { force: true });
+  const p3 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git push" } });
+  check("профиля нет: поведение прежнее, push блокируется",
+    decision(p3).permissionDecision === "deny", p3.out);
+
+  // Парсер профиля отдельно: значения читаются, комментарий и регистр не мешают.
+  mkdirSync(join(sandbox, "профиль", ".volna"), { recursive: true });
+  writeFileSync(join(sandbox, "профиль", ".volna", "project.md"),
+    "## Профиль\n\n- репозитории: Один   # комментарий\n- трекер: нет\n\n## Репозитории\n\n- трекер: tfs\n",
+    "utf8");
+  const profile = readProfile(join(sandbox, "профиль", ".volna"));
+  check("профиль: значение с комментарием прочитано", profile["репозитории"] === "один",
+    JSON.stringify(profile));
+  check("профиль: строка из чужой секции не подхвачена", profile["трекер"] === "нет",
+    JSON.stringify(profile));
+  check("профиль: «трекер: нет» распознан", hasTracker(profile) === false, JSON.stringify(profile));
+  check("профиля нет: трекер считается настроенным", hasTracker(readProfile(volnaDir)) === true);
+
+  // Незаполненный профиль (плейсхолдеры шаблона) - не ответ: гейт остаётся на месте.
+  writeFileSync(join(sandbox, "профиль", ".volna", "project.md"),
+    "## Профиль\n\n- трекер: <нет|tfs>\n- репозитории: <один|несколько>\n", "utf8");
+  const blank = readProfile(join(sandbox, "профиль", ".volna"));
+  check("плейсхолдер: распознан как незаполненное", isPlaceholder(blank["трекер"]), JSON.stringify(blank));
+  check("плейсхолдер: трекер не считается выключенным", hasTracker(blank) === true, JSON.stringify(blank));
+
+  writeFileSync(projectMd, "## Профиль\n\n- трекер: <нет|tfs>\n", "utf8");
+  const p4 = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git push" } });
+  check("незаполненный профиль: push вне deliver всё равно блокируется",
+    decision(p4).permissionDecision === "deny", p4.out);
+  rmSync(projectMd, { force: true });
 }
 
 // --- 8. Гейт не трогает посторонние команды -----------------------------------

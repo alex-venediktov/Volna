@@ -20,17 +20,71 @@ export async function readHookInput() {
   }
 }
 
-/** Найти каталог .volna вверх по дереву от cwd. Не нашли - null. */
+/**
+ * Найти каталог .volna вверх по дереву от cwd. Не нашли - null.
+ *
+ * Подъём останавливается на корне репозитория (каталог с .git): «Волна» работает только там,
+ * где её развернули, а .volna соседнего проекта выше по дереву - чужая настройка. Без границы
+ * один .volna в каталоге проектов делал бы проинициализированными все репозитории под ним.
+ */
 export function findVolnaDir(startDir) {
   let dir = resolve(startDir || process.cwd());
   for (let i = 0; i < 12; i++) {
     const candidate = join(dir, ".volna");
     if (existsSync(candidate)) return candidate;
+    if (existsSync(join(dir, ".git"))) return null;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
   return null;
+}
+
+/**
+ * Профиль проекта из секции «## Профиль» файла .volna/project.md: строки «- ключ: значение».
+ * Секции нет - пустой объект, и это значит «как было»: настройки, которых проект не назвал,
+ * потребитель трактует по умолчанию (трекер есть, доставка полная).
+ */
+export function readProfile(volnaDir) {
+  if (!volnaDir) return {};
+  let text = "";
+  try {
+    text = readFileSync(join(volnaDir, "project.md"), "utf8");
+  } catch {
+    return {};
+  }
+  const m = /^##[ \t]+Профиль[ \t]*$/m.exec(text);
+  if (!m) return {};
+  const rest = text.slice(m.index + m[0].length);
+  const next = rest.search(/^##[ \t]/m);
+  const body = next < 0 ? rest : rest.slice(0, next);
+  const out = {};
+  for (const line of body.split(/\r?\n/)) {
+    const kv = /^\s*[-*]\s*([^:]+?)\s*:\s*(.*)$/.exec(line);
+    if (!kv) continue;
+    const value = stripComment(kv[2]).trim().toLowerCase();
+    if (value) out[kv[1].trim().toLowerCase()] = value;
+  }
+  return out;
+}
+
+/**
+ * Значение строки профиля не заполнено: в файле остался плейсхолдер шаблона «<нет|tfs>».
+ * Отличается от отсутствия строки: там «как раньше», здесь «человека ещё не спросили».
+ */
+export function isPlaceholder(value) {
+  return /^<.*>$/.test(String(value ?? "").trim());
+}
+
+/**
+ * Есть ли у проекта трекер задач. Строки нет или она не заполнена - есть: проект, заведённый
+ * до профиля, работает с трекером, как работал, а незаполненный профиль не повод снимать гейт
+ * с push. Отсутствие проверяемо, догадка - нет.
+ */
+export function hasTracker(profile) {
+  const value = String(profile?.["трекер"] ?? "").trim();
+  if (isPlaceholder(value)) return true;
+  return !(value === "нет" || value === "none");
 }
 
 /** state.json: указатель на активную задачу и признак глушения. */

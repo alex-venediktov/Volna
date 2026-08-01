@@ -2,13 +2,13 @@
 task: <ID>                 # номер трекера либо локальный id ГГММДД-slug
 title: "<заголовок из TFS или своими словами>"
 type: <bug|story|task|research>
-mode: <tracker|local>      # local — задача без трекера: deliver и close без записи в TFS
+mode: <tracker|local>      # local — задача без трекера: deliver и close без записи в трекер
 tracker: "<ссылка на задачу в трекере>"     # local — пусто
 source:                    # local: путь к файлу постановки либо «текст в журнале»
 parent:                    # родительская US — источник постановки (для bug)
-fix_task:                  # id задачи-фикса в TFS (появится на deliver)
+fix_task:                  # id задачи-фикса в трекере (появится на deliver)
 branch:                    # <bugfix|feature>/<ID>-<slug>, создаётся на implement
-repos: []                  # back | front | agent
+repos: []                  # имена ролей из .volna/project.md; один репозиторий — пусто
 stage: intake
 stages_done: []
 skipped: []

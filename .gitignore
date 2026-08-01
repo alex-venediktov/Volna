@@ -8,6 +8,7 @@
 # Состояние и журналы «Волны» (если репозиторий используется и как рабочий)
 .volna/state.json
 .volna/journal/
+.volna/feedback.md
 .volna/project.local.md
 
 # Локальные настройки Claude Code (пути машины, персональные разрешения, временные файлы)
