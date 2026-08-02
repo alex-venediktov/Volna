@@ -124,7 +124,8 @@ export async function run(argv, deps = {}) {
     err(`не удалось прочитать вики: ${e.message}`);
     return 3;
   }
-  if (!records.length) { err(`в ${root} нет записей`); return 3; }
+  // Перенос как раз и наполняет пустую вику: только что развёрнутая записей не содержит
+  if (!records.length && command !== "migrate") { err(`в ${root} нет записей`); return 3; }
 
   const plan = planIndexes(records, schema);
 
