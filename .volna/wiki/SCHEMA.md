@@ -4,6 +4,7 @@
 
 ```yaml
 root: .volna/wiki
+types: [гейт, magic-число, направление, особый случай, порядок, побочный эффект, ограничение, термин, договорённость, конфликт, расхождение, приём]
 sections:
   reference: {code: true, depth: 1}
   project: {code: false, depth: 1}
