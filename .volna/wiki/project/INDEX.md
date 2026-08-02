@@ -7,12 +7,28 @@
 
 | Запись | Предмет | Тип | Файл |
 |---|---|---|---|
-| Замер стоимости плагина: инвентарь считает описания, а не тела | замер always-on и on-invoke |  | [project/cost/plugin-cost-measurement.md](project/cost/plugin-cost-measurement.md#замер-стоимости-плагина-инвентарь-считает-описания-а-не-тела) |
-| Разгрузка тела скилла: делить по частоте обращения, а не по объёму | цена on-invoke, вынос в references |  | [project/cost/skill-body-unload.md](project/cost/skill-body-unload.md#разгрузка-тела-скилла-делить-по-частоте-обращения-а-не-по-объёму) |
+| Замер стоимости плагина: инвентарь считает описания, а не тела | замер always-on и on-invoke | ограничение | [project/cost/plugin-cost-measurement.md](project/cost/plugin-cost-measurement.md#замер-стоимости-плагина-инвентарь-считает-описания-а-не-тела) |
+| Разгрузка тела скилла: делить по частоте обращения, а не по объёму | цена on-invoke, вынос в references | направление | [project/cost/skill-body-unload.md](project/cost/skill-body-unload.md#разгрузка-тела-скилла-делить-по-частоте-обращения-а-не-по-объёму) |
+
+## implement
+
+| Запись | Предмет | Тип | Файл |
+|---|---|---|---|
+| Правило действует только там, куда смотрят в момент действия | место правила в плагине | направление | [project/rules/rule-on-the-path.md](project/rules/rule-on-the-path.md#правило-действует-только-там-куда-смотрят-в-момент-действия) |
+| Текст команды весит больше правила в файле этапа | команды и инструкции этапов | направление | [project/rules/command-text-outweighs-stage-file.md](project/rules/command-text-outweighs-stage-file.md#текст-команды-весит-больше-правила-в-файле-этапа) |
+
+## unit-tests
+
+| Запись | Предмет | Тип | Файл |
+|---|---|---|---|
+| Дефекты флоу находит прогон по флоу, а не тесты и чтение кода | проверка выпускаемой версии | направление | [project/plugin/live-run-finds-what-tests-miss.md](project/plugin/live-run-finds-what-tests-miss.md#дефекты-флоу-находит-прогон-по-флоу-а-не-тесты-и-чтение-кода) |
 
 ## capture
 
 | Запись | Предмет | Тип | Файл |
 |---|---|---|---|
-| Замер стоимости плагина: инвентарь считает описания, а не тела | замер always-on и on-invoke |  | [project/cost/plugin-cost-measurement.md](project/cost/plugin-cost-measurement.md#замер-стоимости-плагина-инвентарь-считает-описания-а-не-тела) |
-| Разгрузка тела скилла: делить по частоте обращения, а не по объёму | цена on-invoke, вынос в references |  | [project/cost/skill-body-unload.md](project/cost/skill-body-unload.md#разгрузка-тела-скилла-делить-по-частоте-обращения-а-не-по-объёму) |
+| Дефекты флоу находит прогон по флоу, а не тесты и чтение кода | проверка выпускаемой версии | направление | [project/plugin/live-run-finds-what-tests-miss.md](project/plugin/live-run-finds-what-tests-miss.md#дефекты-флоу-находит-прогон-по-флоу-а-не-тесты-и-чтение-кода) |
+| Замер стоимости плагина: инвентарь считает описания, а не тела | замер always-on и on-invoke | ограничение | [project/cost/plugin-cost-measurement.md](project/cost/plugin-cost-measurement.md#замер-стоимости-плагина-инвентарь-считает-описания-а-не-тела) |
+| Правило действует только там, куда смотрят в момент действия | место правила в плагине | направление | [project/rules/rule-on-the-path.md](project/rules/rule-on-the-path.md#правило-действует-только-там-куда-смотрят-в-момент-действия) |
+| Разгрузка тела скилла: делить по частоте обращения, а не по объёму | цена on-invoke, вынос в references | направление | [project/cost/skill-body-unload.md](project/cost/skill-body-unload.md#разгрузка-тела-скилла-делить-по-частоте-обращения-а-не-по-объёму) |
+| Текст команды весит больше правила в файле этапа | команды и инструкции этапов | направление | [project/rules/command-text-outweighs-stage-file.md](project/rules/command-text-outweighs-stage-file.md#текст-команды-весит-больше-правила-в-файле-этапа) |

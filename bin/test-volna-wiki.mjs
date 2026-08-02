@@ -142,6 +142,21 @@ const shardPlan = planIndexes(records, { ...schema, limits: { ...schema.limits, 
 check("порог превышен - шардирование по этапам", shardPlan.sharded.includes("reference") && shardPlan.files.some((f) => f.rel === "reference/indexes/implement.md"),
   shardPlan.files.map((f) => f.rel).join(","));
 
+// Записи одного этапа из разных подкаталогов: до 15 строк секция остаётся одной таблицей
+const topicRecord = (topic, n) => ({
+  rel: `volna/${topic}/${n}.md`, section: "volna", heading: `Вывод ${topic} ${n}`,
+  anchor: `вывод-${topic}-${n}`, subject: topic, type: "порядок", stages: ["plan"],
+});
+const shortIdx = planIndexes([topicRecord("flow", 1), topicRecord("journal", 2)], schema)
+  .files.find((f) => f.rel === "volna/INDEX.md").text;
+check("короткая секция из разных тем - одна таблица", (shortIdx.match(/^\| Запись \|/gm) ?? []).length === 1,
+  String((shortIdx.match(/^\| Запись \|/gm) ?? []).length));
+check("короткая секция из разных тем - без заголовков тем", !/^### /m.test(shortIdx));
+const longRows = Array.from({ length: 16 }, (_, i) => topicRecord(i % 2 ? "flow" : "journal", i));
+const longIdx = planIndexes(longRows, schema).files.find((f) => f.rel === "volna/INDEX.md").text;
+check("длинная секция делится по темам с заголовками", /^### volna\/flow$/m.test(longIdx) && /^### volna\/journal$/m.test(longIdx),
+  longIdx.split("\n").filter((l) => l.startsWith("###")).join(","));
+
 // --- линт
 const findings = lint({ records, files, schema, indexed: plan.indexed, verify: (a) => verifyAnchor(a, schema, fakeDeps()) });
 const codes = new Set(findings.map((f) => f.code));

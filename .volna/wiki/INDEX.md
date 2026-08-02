@@ -4,4 +4,5 @@
 
 | Раздел | Записей | Указатель |
 |---|---|---|
-| project | 2 | [project/INDEX.md](project/INDEX.md) |
+| project | 5 | [project/INDEX.md](project/INDEX.md) |
+| volna | 17 | [volna/INDEX.md](volna/INDEX.md) |
