@@ -12,6 +12,6 @@
 иначе `/volna:task <номер>` завёл бы там журнал и `state.json`.
 
 Третья дыра кодом не закрывается: описания скиллов видны в любой сессии, пока плагин включён, -
-см. [[enable-per-project]].
+см. [[setup-enable-per-project]].
 
-**связи:** [[enable-per-project]], [[profile-placeholder]]
+**связи:** [[setup-enable-per-project]], [[flow-profile-placeholder]]

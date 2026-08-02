@@ -18,4 +18,4 @@
 **источник:**
 - `skills/volna-flow/SKILL.md` — «Спрашивать вариантами там, где останов и так неизбежен»
 
-**связи:** [[next-command-line]], [[stage-rerun-is-iteration]]
+**связи:** [[flow-next-command-line]], [[flow-stage-rerun-is-iteration]]

@@ -6,10 +6,10 @@
  * Запуск: node bin/test-volna-wiki.mjs
  */
 import { run, parseArgs, findRoot } from "./volna-wiki.mjs";
-import { parseYamlSubset, loadSchema, slug, field, parseAnchors, readRecords, verifyAnchor, decodeSource, DEFAULTS } from "../lib/wiki.mjs";
+import { parseYamlSubset, loadSchema, slug, field, parseAnchors, readRecords, verifyAnchor, decodeSource, isIndexFile, nodeOf, DEFAULTS } from "../lib/wiki.mjs";
 import { lint } from "../lib/wiki-lint.mjs";
 import { planIndexes, planRoute, planPlacement } from "../lib/wiki-index.mjs";
-import { parseLegacyIndex, planMigration, sectionForZone } from "../lib/wiki-migrate.mjs";
+import { parseLegacyIndex, planFlatten, planMigration, sectionForZone } from "../lib/wiki-migrate.mjs";
 
 let failures = 0;
 function check(name, cond, detail = "") {
@@ -139,8 +139,11 @@ check("корневой указатель собран", plan.files.some((f) =>
 check("указатель раздела собран", plan.files.some((f) => f.rel === "reference/INDEX.md"));
 check("адреса записей попали в указатель", plan.indexed.size === 2, String(plan.indexed.size));
 const shardPlan = planIndexes(records, { ...schema, limits: { ...schema.limits, index_file_lines: 5 } });
-check("порог превышен - шардирование по этапам", shardPlan.sharded.includes("reference") && shardPlan.files.some((f) => f.rel === "reference/indexes/implement.md"),
+check("порог превышен - шардирование по этапам", shardPlan.sharded.includes("reference") && shardPlan.files.some((f) => f.rel === "reference/INDEX--implement.md"),
   shardPlan.files.map((f) => f.rel).join(","));
+const bytePlan = planIndexes(records, { ...schema, limits: { ...schema.limits, index_file_bytes: 200 } });
+check("порог в байтах режет указатель, уместившийся по строкам", bytePlan.sharded.includes("reference"),
+  bytePlan.files.map((f) => f.rel).join(","));
 
 // Записи одного этапа из разных подкаталогов: до 15 строк секция остаётся одной таблицей
 const topicRecord = (topic, n) => ({
@@ -149,13 +152,17 @@ const topicRecord = (topic, n) => ({
 });
 const shortIdx = planIndexes([topicRecord("flow", 1), topicRecord("journal", 2)], schema)
   .files.find((f) => f.rel === "volna/INDEX.md").text;
-check("короткая секция из разных тем - одна таблица", (shortIdx.match(/^\| Запись \|/gm) ?? []).length === 1,
-  String((shortIdx.match(/^\| Запись \|/gm) ?? []).length));
-check("короткая секция из разных тем - без заголовков тем", !/^### /m.test(shortIdx));
+check("лист - одна таблица", (shortIdx.match(/^\| Куда \|/gm) ?? []).length === 1,
+  String((shortIdx.match(/^\| Куда \|/gm) ?? []).length));
+check("лист без заголовков тем", !/^### /m.test(shortIdx));
 const longRows = Array.from({ length: 16 }, (_, i) => topicRecord(i % 2 ? "flow" : "journal", i));
 const longIdx = planIndexes(longRows, schema).files.find((f) => f.rel === "volna/INDEX.md").text;
-check("длинная секция делится по темам с заголовками", /^### volna\/flow$/m.test(longIdx) && /^### volna\/journal$/m.test(longIdx),
-  longIdx.split("\n").filter((l) => l.startsWith("###")).join(","));
+check("длинный лист остаётся одной таблицей: этап колонкой, а не секцией",
+  (longIdx.match(/^\| Куда \|/gm) ?? []).length === 1 && !/^## /m.test(longIdx),
+  longIdx.split("\n").filter((l) => l.startsWith("#")).join(","));
+check("запись в листе встречается один раз, а не по разу на этап",
+  (longIdx.match(/Вывод flow 1\]/g) ?? []).length === 1,
+  String((longIdx.match(/Вывод flow 1\]/g) ?? []).length));
 
 // Дерево узлов: ось topic режет по подкаталогам рекурсивно, пока узел не уместится в порог
 const deepRecord = (path, n, stage = "implement") => ({
@@ -170,19 +177,24 @@ const deepRows = [
 const topicSchema = { ...schema, index: { shard_by: ["topic", "stage"] }, limits: { ...schema.limits, index_file_lines: 14 } };
 const treePlan = planIndexes(deepRows, topicSchema);
 const treeRels = treePlan.files.map((f) => f.rel);
-check("узел раздела делится по первому сегменту", treeRels.includes("reference/INDEX.md") && /\| export \|/.test(treePlan.files.find((f) => f.rel === "reference/INDEX.md").text),
+check("узел раздела делится по первому сегменту", treeRels.includes("reference/INDEX.md") && /\| \[export\]/.test(treePlan.files.find((f) => f.rel === "reference/INDEX.md").text),
   treeRels.join(","));
-check("одиночная цепочка сжата: export/kompas одним узлом", treeRels.includes("reference/indexes/export/kompas/INDEX.md"), treeRels.join(","));
-check("лист лежит на своей глубине", treeRels.includes("reference/indexes/export/kompas/leftview/INDEX.md"), treeRels.join(","));
-check("оглавление узла несёт описание и этапы", /\| Узел \| Записей \| Этапы \| Что внутри \| Файл \|/.test(treePlan.files.find((f) => f.rel === "reference/indexes/export/kompas/INDEX.md").text));
-check("ссылка на запись считает глубину узла",
-  treePlan.files.find((f) => f.rel === "reference/indexes/export/kompas/leftview/implement.md").text.includes("(../../../../../reference/export/kompas/leftview/"),
-  treePlan.files.find((f) => f.rel === "reference/indexes/export/kompas/leftview/implement.md").text.split("\n").find((l) => l.startsWith("| Вывод")));
-check("карта размещения ведёт к листу", treePlan.placed.get("reference/export/kompas/leftview/0.md#вывод-export-kompas-leftview-0") === "reference/indexes/export/kompas/leftview/implement.md",
+check("одиночная цепочка сжата: export/kompas одним узлом", treeRels.includes("reference/INDEX-export-kompas.md"), treeRels.join(","));
+check("лист лежит на своей глубине", treeRels.includes("reference/INDEX-export-kompas-leftview.md"), treeRels.join(","));
+check("все указатели раздела лежат в его корне", treeRels.filter((r) => r !== "INDEX.md").every((r) => /^reference\/INDEX(-|\.)/.test(r)),
+  treeRels.join(","));
+check("оглавление узла несёт колонки описания, предмета и типа",
+  /\| Куда \| Вид \| Предмет \| Тип \| Этапы \| Описание \|/.test(treePlan.files.find((f) => f.rel === "reference/INDEX-export-kompas.md").text));
+// Порог теста мал, поэтому лист сверх него дробится ещё и по этапу - вторым суффиксом имени
+const leafText = treePlan.files.find((f) => f.rel === "reference/INDEX-export-kompas-leftview--implement--1.md").text;
+check("ссылка на запись идёт от корня раздела, без цепочки вверх",
+  leafText.includes("(export/kompas/leftview/") && !leafText.includes("../"),
+  leafText.split("\n").find((l) => l.startsWith("| [Вывод")));
+check("карта размещения ведёт к листу", treePlan.placed.get("reference/export/kompas/leftview/0.md#вывод-export-kompas-leftview-0") === "reference/INDEX-export-kompas-leftview--implement--1.md",
   String(treePlan.placed.get("reference/export/kompas/leftview/0.md#вывод-export-kompas-leftview-0")));
 
 const route = planRoute(deepRows, "экспорт kompas leftview", topicSchema);
-check("маршрут ведёт в нужный лист", route.routes[0]?.rel === "reference/indexes/export/kompas/leftview/implement.md",
+check("маршрут ведёт в нужный лист", route.routes[0]?.rel === "reference/INDEX-export-kompas-leftview--implement--1.md",
   route.routes.map((r) => r.rel).join(","));
 check("маршрут по одному слову из многих не выдаётся", planRoute(deepRows, "downview", topicSchema).routes.length > 0);
 
@@ -282,6 +294,65 @@ const again = planMigration({
 });
 check("повторный перенос не переписывает перенесённое", again.items.length === 0 && again.already.length === 1,
   `${again.items.length}/${again.already.length}`);
+
+// Порог объёма соблюдается на всех листах: то, что не делится ни темой, ни этапом, режется на части
+const tightSchema = { ...schema, index: { shard_by: ["topic", "stage"] }, limits: { ...schema.limits, index_file_lines: 12, index_file_bytes: 900 } };
+const tight = planIndexes(deepRows, tightSchema);
+// Порог проверяется на листах: оглавление узла не режется - оно и есть точка выбора ветки
+const tightLeaves = tight.files.filter((f) => f.text.includes("| вывод |"));
+check("порог объёма соблюдён на каждом листе",
+  tightLeaves.length > 0 && tightLeaves.every((f) => Buffer.byteLength(f.text, "utf8") <= 900 && f.text.split("\n").length <= 12),
+  tightLeaves.filter((f) => Buffer.byteLength(f.text, "utf8") > 900).map((f) => `${f.rel}:${Buffer.byteLength(f.text, "utf8")}`).join(","));
+check("части нумерованы вторым суффиксом", tight.files.some((f) => /--implement--2\.md$/.test(f.rel)),
+  tight.files.map((f) => f.rel).join(","));
+check("запись лежит ровно в одной части",
+  new Set(deepRows.map((r) => tight.placed.get(`${r.rel}#${r.anchor}`))).size > 1
+  && deepRows.every((r) => tight.placed.has(`${r.rel}#${r.anchor}`)));
+
+// --- плоская раскладка: путь узла живёт в имени файла
+const TOPICS = { ui: "экран", kompas: "экспорт", tabs: "вкладки", "down-view": "вид сверху" };
+check("узел разобран из имени файла", nodeOf("reference/ui-tabs-gates.md", TOPICS).join("/") === "ui/tabs",
+  nodeOf("reference/ui-tabs-gates.md", TOPICS).join("/"));
+check("тема с дефисом не распадается на два уровня", nodeOf("reference/ui-down-view-logo.md", TOPICS).join("/") === "ui/down-view",
+  nodeOf("reference/ui-down-view-logo.md", TOPICS).join("/"));
+check("незнакомое слово узлом не становится", nodeOf("reference/scale-of-view.md", TOPICS).length === 0,
+  nodeOf("reference/scale-of-view.md", TOPICS).join("/"));
+check("имя документа, совпавшее с темой, уровнем не считается", nodeOf("reference/ui-tabs.md", TOPICS).join("/") === "ui",
+  nodeOf("reference/ui-tabs.md", TOPICS).join("/"));
+check("каталоги прежней раскладки по-прежнему дают узел", nodeOf("reference/ui/tabs/gates.md", TOPICS).join("/") === "ui/tabs",
+  nodeOf("reference/ui/tabs/gates.md", TOPICS).join("/"));
+check("указатель записью не считается", isIndexFile("INDEX.md") && isIndexFile("INDEX-ui-tabs.md") && !isIndexFile("index-tree.md"));
+
+const flatSchema = { ...schema, topics: TOPICS, index: { shard_by: ["topic", "stage"] } };
+const flatRows = [
+  { rel: "reference/ui-tabs-gates.md", section: "reference", node: nodeOf("reference/ui-tabs-gates.md", TOPICS),
+    heading: "Вкладка блокируется числом", anchor: "вкладка-блокируется-числом", subject: "вкладки", type: "гейт", stages: ["implement"] },
+];
+const flatPlan = planIndexes(flatRows, flatSchema);
+check("в плоской раскладке ссылка - одно имя файла",
+  flatPlan.files.find((f) => f.rel === "reference/INDEX.md").text.includes("](ui-tabs-gates.md#вкладка-блокируется-числом)"),
+  flatPlan.files.find((f) => f.rel === "reference/INDEX.md").text);
+
+// --- выпрямление раскладки
+const flatten = planFlatten({
+  files: [
+    { rel: "reference/ui/tabs/gates.md", text: "# Гейт\n\n**связи:** [[composition]] и [[composition#шапка]]\n" },
+    { rel: "reference/ui/tabs/composition.md", text: "# Состав\n" },
+  ],
+  schema: { topics: TOPICS },
+});
+check("узлы переехали в имя файла", flatten.moves.map((m) => m.to).join(",") === "reference/ui-tabs-gates.md,reference/ui-tabs-composition.md",
+  flatten.moves.map((m) => m.to).join(","));
+check("связи переписаны на новое имя", /\[\[ui-tabs-composition\]\].*\[\[ui-tabs-composition#шапка\]\]/s.test(flatten.moves[0].text),
+  flatten.moves[0].text);
+check("счётчик переписанных связей верен", flatten.rewritten === 2, String(flatten.rewritten));
+check("чистый план не заблокирован", !flatten.blocked, JSON.stringify({ t: flatten.needTopic, a: flatten.ambiguous }));
+const flattenBad = planFlatten({ files: [{ rel: "reference/mystery/a.md", text: "# А\n" }], schema: { topics: TOPICS } });
+check("узел без описания в topics блокирует выпрямление", flattenBad.blocked && flattenBad.needTopic.includes("mystery"),
+  JSON.stringify(flattenBad.needTopic));
+const flattenAmb = planFlatten({ files: [{ rel: "reference/ui/tabs-of-mine.md", text: "# Б\n" }], schema: { topics: TOPICS } });
+check("имя, съедающее уровень, блокирует выпрямление", flattenAmb.blocked && flattenAmb.ambiguous.length === 1,
+  JSON.stringify(flattenAmb.ambiguous));
 
 console.log(`\n${failures ? `ПРОВАЛОВ: ${failures}` : "все проверки пройдены"}`);
 process.exit(failures ? 1 : 0);

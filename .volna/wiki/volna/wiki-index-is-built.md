@@ -16,4 +16,4 @@
 
 Записи без поля `этапы` в указатель не попадают вовсе - для читающего этапа их нет.
 
-**связи:** [[record-is-a-claim]], [[skill-body-unload]]
+**связи:** [[wiki-record-is-a-claim]], [[cost-skill-body-unload]]

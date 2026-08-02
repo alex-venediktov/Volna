@@ -16,4 +16,4 @@
 Практический вывод для выпуска версии: правки скиллов и команд проверяются в текущей сессии,
 правки hooks - только после выхода и повторного запуска.
 
-**связи:** [[enable-per-project]], [[live-run-finds-what-tests-miss]]
+**связи:** [[setup-enable-per-project]], [[plugin-live-run-finds-what-tests-miss]]

@@ -17,4 +17,4 @@
   Лог без свежего резюме возвращает к чтению лога;
 - при противоречии слоёв **прав верхний**: резюме важнее лога, лог важнее памяти о разговоре.
 
-**связи:** [[state-fields-exact]], [[closed-state-is-archive]], [[autopass-checkpoint]]
+**связи:** [[journal-state-fields-exact]], [[journal-closed-state-is-archive]], [[flow-autopass-checkpoint]]

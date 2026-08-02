@@ -18,4 +18,4 @@
 Отсюда практика при выпуске версии: правку правила ставить туда, куда смотрят **в момент
 действия**, а вынесенное в `references/` считать обоснованием, а не инструкцией.
 
-**связи:** [[command-text-outweighs-stage-file]], [[skill-body-unload]]
+**связи:** [[rules-command-text-outweighs-stage-file]], [[cost-skill-body-unload]]

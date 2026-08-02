@@ -20,4 +20,4 @@
 Дубликат - **дописать существующую запись**, а не завести вторую; что записей стало две,
 покажет `/volna:lint`.
 
-**связи:** [[index-is-built]], [[conflict-vs-divergence]]
+**связи:** [[wiki-index-is-built]], [[wiki-conflict-vs-divergence]]

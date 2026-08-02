@@ -18,4 +18,4 @@
 **источник:**
 - `docs/STATUS.md` — «Чек-пойнт - шаг внутри автопрохода, а не только перед `/compact`»
 
-**связи:** [[restore-from-state]], [[timestamp-from-system]]
+**связи:** [[journal-restore-from-state]], [[journal-timestamp-from-system]]

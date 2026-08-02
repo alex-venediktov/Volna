@@ -14,6 +14,7 @@
  *   volna-wiki verify [--fix]            сверка якорей с источниками; --fix правит номера строк
  *   volna-wiki stats                     счётчики, пороги, доля проверенных
  *   volna-wiki pairs                     записи с общим предметом: вход смысловой сверки
+ *   volna-wiki flatten [--fix]           выпрямить раскладку: узлы из каталогов в имена файлов
  *   volna-wiki migrate [--fix]           перенос .volna/knowledge в вики (--zone зона=раздел)
  *
  * Корень вики берётся из --root, иначе из SCHEMA.md найденной вики, иначе .volna/wiki.
@@ -22,10 +23,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULTS, loadSchema, readRecords, verifyAnchor, walkFiles } from "../lib/wiki.mjs";
+import { DEFAULTS, isIndexFile, loadSchema, readRecords, verifyAnchor, walkFiles } from "../lib/wiki.mjs";
 import { lint, formatFindings, ERROR } from "../lib/wiki-lint.mjs";
 import { planIndexes, planRoute, planPlacement } from "../lib/wiki-index.mjs";
-import { parseLegacyIndex, planMigration } from "../lib/wiki-migrate.mjs";
+import { parseLegacyIndex, planFlatten, planMigration } from "../lib/wiki-migrate.mjs";
 
 const SCHEMA_TEMPLATE = `# Соглашения вики выводов
 
@@ -120,7 +121,7 @@ export async function run(argv, deps = {}) {
   let files;
   try {
     schema = loadSchema(root, deps);
-    ({ records, files } = readRecords(root, deps));
+    ({ records, files } = readRecords(root, deps, schema));
   } catch (e) {
     err(`не удалось прочитать вики: ${e.message}`);
     return 3;
@@ -146,14 +147,24 @@ export async function run(argv, deps = {}) {
     const isDir = deps.isDir ?? ((p) => existsSync(p) && statSync(p).isDirectory());
     const remove = deps.remove ?? ((p) => rmSync(p, { recursive: true }));
     const dead = [];
+    // Подметаем только указатели: они собираются инструментом, а всё прочее в разделе - записи.
+    // Прежняя раскладка держала их в каталоге `indexes`, нынешняя - в корне раздела с суффиксом
+    // имени, поэтому обход берёт оба места
     const sweep = (relDir) => {
       for (const name of listDir(join(root, relDir))) {
         const rel = `${relDir}/${name}`;
-        if (isDir(join(root, rel))) { sweep(rel); continue; }
-        if (name.endsWith(".md") && !planned.has(rel)) { remove(join(root, rel)); dead.push(rel); }
+        // Каталог прежней раскладки принадлежит инструменту целиком: записей там не бывает
+        if (isDir(join(root, rel))) {
+          if (name === "indexes") { remove(join(root, rel)); dead.push(`${rel}/`); }
+          continue;
+        }
+        if (name.endsWith(".md") && isIndexFile(name) && !planned.has(rel)) {
+          remove(join(root, rel));
+          dead.push(rel);
+        }
       }
     };
-    for (const section of plan.sharded) sweep(`${section}/indexes`);
+    for (const section of new Set(records.map((r) => r.section))) sweep(section);
     log(`указателей записано: ${plan.files.length}${plan.sharded.length ? `, шардированы: ${plan.sharded.join(", ")}` : ""}`);
     if (dead.length) log(`мёртвых шардов удалено: ${dead.length} (${dead.join(", ")})`);
     return 0;
@@ -190,6 +201,39 @@ export async function run(argv, deps = {}) {
     log(`завести: ${p.suggestion.dir}`);
     if (p.suggestion.unmatched.length) log(`  слова задачи без узла: ${p.suggestion.unmatched.join(", ")}`);
     log("  имя узла - одно слово; описание темы дописать в SCHEMA.md, ключ topics");
+    return 0;
+  }
+
+  if (command === "flatten") {
+    const readFile = deps.readFile ?? ((p) => readFileSync(p, "utf8"));
+    const flat = planFlatten({ files: files.map((f) => ({ rel: f.rel, text: readFile(f.path) })), schema });
+    if (!flat.moves.length) { log("раскладка уже плоская: переносить нечего"); return 0; }
+    if (flat.touched.length) log(`связи поправятся и в файлах, которые остаются на месте: ${flat.touched.length}`);
+    log(`${flags.fix ? "выпрямлено" : "план выпрямления (без --fix ничего не записано)"}: ${flat.moves.length}`);
+    if (!flags.fix) for (const m of flat.moves.slice(0, 10)) log(`  ${m.from}  ->  ${m.to}`);
+    if (flat.needTopic.length) err(`сегменты пути без описания в SCHEMA.md, ключ topics: ${flat.needTopic.join(", ")}`);
+    if (flat.ambiguous.length) err(`имя не разбирается обратно в путь: ${flat.ambiguous.map((a) => a.to).join(", ")}`);
+    if (flat.collisions.length) err(`целевые имена сталкиваются: ${flat.collisions.map((c) => c.to).join(", ")}`);
+    if (flat.blocked) { err("выпрямление не выполнено: сначала устранить перечисленное"); return 1; }
+    if (flat.brokenLinks.length) log(`связей по неоднозначному имени оставлено как есть: ${flat.brokenLinks.length} (${flat.brokenLinks.map((b) => b.link).join(", ")})`);
+    if (!flags.fix) return 0;
+    const listDir = deps.listDir ?? ((p) => (existsSync(p) ? readdirSync(p) : []));
+    const remove = deps.remove ?? ((p) => rmSync(p, { recursive: true }));
+    for (const f of flat.touched) write(join(root, f.rel), f.text);
+    const dirs = new Set();
+    for (const m of flat.moves) {
+      write(join(root, m.to), m.text);
+      remove(join(root, m.from));
+      const parts = m.from.split("/");
+      for (let i = parts.length - 1; i > 1; i--) dirs.add(parts.slice(0, i).join("/"));
+    }
+    // Опустевший каталог узла выглядит как живая ветка: обход идёт от длинных путей к коротким,
+    // иначе родитель проверяется раньше, чем из него исчезнет ребёнок
+    for (const d of [...dirs].sort((a, b) => b.length - a.length)) {
+      if (!listDir(join(root, d)).length) remove(join(root, d));
+    }
+    log(`связей переписано: ${flat.rewritten}`);
+    log("указатели пересобрать: volna-wiki index --fix");
     return 0;
   }
 
@@ -343,6 +387,7 @@ function usage() {
     "  verify [--fix]            сверка якорей с источниками",
     "  stats                     счётчики, типы, пороги",
     "  pairs                     кандидаты на смысловую сверку: общий предмет у разных записей",
+    "  flatten [--fix]           выпрямить раскладку: узлы из каталогов переезжают в имена файлов",
     "  migrate [--from путь] [--zone зона=раздел] [--fix]   перенос прежних знаний в вики",
     "",
     "Без --fix ни одна команда не пишет в файлы.",

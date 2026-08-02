@@ -5,10 +5,18 @@
 ```yaml
 root: .volna/wiki
 sections:
-  reference: {code: true}
-  project: {code: false}
-  process: {code: false}
-  volna: {code: false}
+  reference: {code: true, depth: 1}
+  project: {code: false, depth: 1}
+  process: {code: false, depth: 1}
+  volna: {code: false, depth: 1}
+topics:
+  cost: "цена работы: чем оплачивается контекст, что грузится и когда"
+  plugin: "устройство самого плагина: сборка, выпуск, проверка на живом прогоне"
+  rules: "правила и их приоритет: где написано сильнее"
+  flow: "флоу задачи: этапы, переходы, автопроход, вопросы человеку"
+  journal: "журнал работ: состояние, лог, чек-пойнт, время"
+  setup: "развёртывание «Волны» в проекте: хуки, включение, границы"
+  wiki: "вика выводов: единица хранения, указатели, конфликты"
 limits:
   record_lines: 20
   record_lines_hard: 40
@@ -16,6 +24,7 @@ limits:
   file_lines: 200
   file_lines_hard: 400
   index_file_lines: 300
+  index_file_bytes: 8000
   quote_min_chars: 15
   stale_days: 365
 checks:

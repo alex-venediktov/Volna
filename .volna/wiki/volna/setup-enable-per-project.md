@@ -14,4 +14,4 @@
 Там же закрепляется версия: `"ref": "vX.Y.Z"` в источнике маркетплейса. Тогда обновление -
 это смена тега отдельным коммитом, а не «поехало у всех сразу».
 
-**связи:** [[only-where-deployed]], [[hooks-need-restart]], [[plugin-cost-measurement]]
+**связи:** [[setup-only-where-deployed]], [[setup-hooks-need-restart]], [[cost-plugin-cost-measurement]]
