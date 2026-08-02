@@ -8,7 +8,7 @@
 import { run, parseArgs, findRoot } from "./volna-wiki.mjs";
 import { parseYamlSubset, loadSchema, slug, field, parseAnchors, readRecords, verifyAnchor, decodeSource, DEFAULTS } from "../lib/wiki.mjs";
 import { lint } from "../lib/wiki-lint.mjs";
-import { planIndexes } from "../lib/wiki-index.mjs";
+import { planIndexes, planRoute, planPlacement } from "../lib/wiki-index.mjs";
 import { parseLegacyIndex, planMigration, sectionForZone } from "../lib/wiki-migrate.mjs";
 
 let failures = 0;
@@ -156,6 +156,43 @@ const longRows = Array.from({ length: 16 }, (_, i) => topicRecord(i % 2 ? "flow"
 const longIdx = planIndexes(longRows, schema).files.find((f) => f.rel === "volna/INDEX.md").text;
 check("длинная секция делится по темам с заголовками", /^### volna\/flow$/m.test(longIdx) && /^### volna\/journal$/m.test(longIdx),
   longIdx.split("\n").filter((l) => l.startsWith("###")).join(","));
+
+// Дерево узлов: ось topic режет по подкаталогам рекурсивно, пока узел не уместится в порог
+const deepRecord = (path, n, stage = "implement") => ({
+  rel: `reference/${path}/${n}.md`, section: "reference", heading: `Вывод ${path} ${n}`,
+  anchor: `вывод-${path.replace(/\//g, "-")}-${n}`, subject: path.split("/").pop(), type: "порядок", stages: [stage],
+});
+const deepRows = [
+  ...Array.from({ length: 8 }, (_, i) => deepRecord("export/kompas/leftview", i)),
+  ...Array.from({ length: 8 }, (_, i) => deepRecord("export/kompas/downview", i)),
+  ...Array.from({ length: 8 }, (_, i) => deepRecord("screen/leftview", i)),
+];
+const topicSchema = { ...schema, index: { shard_by: ["topic", "stage"] }, limits: { ...schema.limits, index_file_lines: 14 } };
+const treePlan = planIndexes(deepRows, topicSchema);
+const treeRels = treePlan.files.map((f) => f.rel);
+check("узел раздела делится по первому сегменту", treeRels.includes("reference/INDEX.md") && /\| export \|/.test(treePlan.files.find((f) => f.rel === "reference/INDEX.md").text),
+  treeRels.join(","));
+check("одиночная цепочка сжата: export/kompas одним узлом", treeRels.includes("reference/indexes/export/kompas/INDEX.md"), treeRels.join(","));
+check("лист лежит на своей глубине", treeRels.includes("reference/indexes/export/kompas/leftview/INDEX.md"), treeRels.join(","));
+check("оглавление узла несёт описание и этапы", /\| Узел \| Записей \| Этапы \| Что внутри \| Файл \|/.test(treePlan.files.find((f) => f.rel === "reference/indexes/export/kompas/INDEX.md").text));
+check("ссылка на запись считает глубину узла",
+  treePlan.files.find((f) => f.rel === "reference/indexes/export/kompas/leftview/implement.md").text.includes("(../../../../../reference/export/kompas/leftview/"),
+  treePlan.files.find((f) => f.rel === "reference/indexes/export/kompas/leftview/implement.md").text.split("\n").find((l) => l.startsWith("| Вывод")));
+check("карта размещения ведёт к листу", treePlan.placed.get("reference/export/kompas/leftview/0.md#вывод-export-kompas-leftview-0") === "reference/indexes/export/kompas/leftview/implement.md",
+  String(treePlan.placed.get("reference/export/kompas/leftview/0.md#вывод-export-kompas-leftview-0")));
+
+const route = planRoute(deepRows, "экспорт kompas leftview", topicSchema);
+check("маршрут ведёт в нужный лист", route.routes[0]?.rel === "reference/indexes/export/kompas/leftview/implement.md",
+  route.routes.map((r) => r.rel).join(","));
+check("маршрут по одному слову из многих не выдаётся", planRoute(deepRows, "downview", topicSchema).routes.length > 0);
+
+// --- размещение новой записи в существующей иерархии
+const placeHit = planPlacement(deepRows, "Размеры на виде leftview в kompas при экспорте идут другим шагом", topicSchema);
+check("место найдено в существующем узле", placeHit.confident && placeHit.dir === "reference/export/kompas/leftview",
+  `${placeHit.dir} conf=${placeHit.confident}`);
+const placeMiss = planPlacement(deepRows, "Термическая обработка стекла и печь закалки", topicSchema);
+check("чужая тема места не находит", !placeMiss.confident, `${placeMiss.dir} conf=${placeMiss.confident}`);
+check("для чужой темы предложен новый узел", Boolean(placeMiss.suggestion?.dir), JSON.stringify(placeMiss.suggestion));
 
 // --- линт
 const findings = lint({ records, files, schema, indexed: plan.indexed, verify: (a) => verifyAnchor(a, schema, fakeDeps()) });

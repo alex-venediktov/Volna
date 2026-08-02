@@ -9,6 +9,7 @@
  * Использование:
  *   volna-wiki init [--root путь]        создать структуру вики и соглашения
  *   volna-wiki index [--fix]             пересобрать указатели (без --fix - показать план)
+ *   volna-wiki route «слова задачи»      какой узел указателя открыть под эту задачу
  *   volna-wiki lint [--json] [--all]     структурные проверки; --all снимает лимит на объём
  *   volna-wiki verify [--fix]            сверка якорей с источниками; --fix правит номера строк
  *   volna-wiki stats                     счётчики, пороги, доля проверенных
@@ -18,12 +19,12 @@
  * Корень вики берётся из --root, иначе из SCHEMA.md найденной вики, иначе .volna/wiki.
  * Коды возврата: 0 чисто, 1 ошибки, 2 только предупреждения, 3 сбой инструмента.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULTS, loadSchema, readRecords, verifyAnchor, walkFiles } from "../lib/wiki.mjs";
 import { lint, formatFindings, ERROR } from "../lib/wiki-lint.mjs";
-import { planIndexes } from "../lib/wiki-index.mjs";
+import { planIndexes, planRoute, planPlacement } from "../lib/wiki-index.mjs";
 import { parseLegacyIndex, planMigration } from "../lib/wiki-migrate.mjs";
 
 const SCHEMA_TEMPLATE = `# Соглашения вики выводов
@@ -96,7 +97,7 @@ export async function run(argv, deps = {}) {
   const write = deps.write ?? ((p, t) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, t, "utf8"); });
   const cwd = deps.cwd ?? process.cwd();
 
-  const { command, flags } = parseArgs(argv);
+  const { command, args, flags } = parseArgs(argv);
   if (!command || command === "help" || flags.help) { log(usage()); return 0; }
 
   const root = findRoot(flags, cwd, exists);
@@ -137,20 +138,58 @@ export async function run(argv, deps = {}) {
       return 0;
     }
     for (const f of plan.files) write(join(root, f.rel), f.text);
-    // Шард, оставшийся от переименованного или опустевшего этапа, живым не выглядит - агент
-    // откроет его и получит устаревший перечень. Убираем всё, чего нет в плане
+    // Шард, оставшийся от переименованного или опустевшего узла, живым не выглядит - агент
+    // откроет его и получит устаревший перечень. Убираем всё, чего нет в плане; дерево узлов
+    // растёт вглубь, поэтому обход рекурсивный
     const planned = new Set(plan.files.map((f) => f.rel));
     const listDir = deps.listDir ?? ((p) => (existsSync(p) ? readdirSync(p) : []));
-    const remove = deps.remove ?? ((p) => rmSync(p));
+    const isDir = deps.isDir ?? ((p) => existsSync(p) && statSync(p).isDirectory());
+    const remove = deps.remove ?? ((p) => rmSync(p, { recursive: true }));
     const dead = [];
-    for (const section of plan.sharded) {
-      for (const name of listDir(join(root, section, "indexes"))) {
-        const rel = `${section}/indexes/${name}`;
+    const sweep = (relDir) => {
+      for (const name of listDir(join(root, relDir))) {
+        const rel = `${relDir}/${name}`;
+        if (isDir(join(root, rel))) { sweep(rel); continue; }
         if (name.endsWith(".md") && !planned.has(rel)) { remove(join(root, rel)); dead.push(rel); }
       }
-    }
+    };
+    for (const section of plan.sharded) sweep(`${section}/indexes`);
     log(`указателей записано: ${plan.files.length}${plan.sharded.length ? `, шардированы: ${plan.sharded.join(", ")}` : ""}`);
     if (dead.length) log(`мёртвых шардов удалено: ${dead.length} (${dead.join(", ")})`);
+    return 0;
+  }
+
+  if (command === "route") {
+    const query = (args ?? []).join(" ").trim();
+    if (!query) { err("нужны слова задачи: volna-wiki route «экспорт вида слева размеры»"); return 3; }
+    const { words, routes, hits } = planRoute(records, query, schema);
+    if (!routes.length) {
+      log(`по словам «${words.join(", ")}» совпадений нет: открыть корневой указатель INDEX.md`);
+      return 0;
+    }
+    log(`слова: ${words.join(", ")}`);
+    log("\nмаршруты, начиная с ближайшего:");
+    for (const r of routes) log(`  ${String(r.count).padStart(3)} зап.  ${r.rel}\n           ${r.subjects.join(", ")}`);
+    log("\nближайшие записи:");
+    for (const h of hits.slice(0, 8)) log(`  ${h.at}`);
+    return 0;
+  }
+
+  if (command === "place") {
+    const text = (args ?? []).join(" ").trim();
+    if (!text) { err("нужен текст записи: volna-wiki place «Шаг ряда размеров в КОМПАС равен десяти»"); return 3; }
+    const p = planPlacement(records, text, schema);
+    log(`слова: ${p.words.join(", ")}`);
+    if (p.confident) {
+      log(`\nместо в существующей иерархии: ${p.dir}`);
+      log(`  совпало сегментов: ${p.segmentHits}, вес ${p.score}`);
+      if (p.alternatives.length) log(`  рядом: ${p.alternatives.map((a) => a.dir).join(", ")}`);
+      return 0;
+    }
+    log(`\nподходящего узла нет${p.dir ? ` (ближайший ${p.dir}, вес ${p.score})` : ""}`);
+    log(`завести: ${p.suggestion.dir}`);
+    if (p.suggestion.unmatched.length) log(`  слова задачи без узла: ${p.suggestion.unmatched.join(", ")}`);
+    log("  имя узла - одно слово; описание темы дописать в SCHEMA.md, ключ topics");
     return 0;
   }
 
@@ -298,6 +337,8 @@ function usage() {
     "",
     "  init [--root путь]        развернуть структуру и соглашения",
     "  index [--fix]             пересобрать указатели (без --fix - только план)",
+    "  route «слова задачи»      какой указатель открыть под эту задачу",
+    "  place «текст записи»      куда положить новый вывод: узел иерархии или новый",
     "  lint [--json] [--all]     структурные проверки записей и файлов",
     "  verify [--fix]            сверка якорей с источниками",
     "  stats                     счётчики, типы, пороги",
