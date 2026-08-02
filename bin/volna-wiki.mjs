@@ -226,13 +226,20 @@ export async function run(argv, deps = {}) {
       const at = String(pair).indexOf("=");
       if (at > 0) overrides[pair.slice(0, at)] = pair.slice(at + 1);
     }
-    const { items, needSubject, needType } = planMigration({ files: legacyFiles, legacyIndex, overrides, schema });
-    if (!items.length) { err("переносить нечего"); return 3; }
+    const { items, already, needSubject, needType } = planMigration({
+      files: legacyFiles, legacyIndex, overrides, schema,
+      targetExists: (rel) => exists(join(root, rel)),
+    });
+    if (!items.length) {
+      log(already.length ? `переносить нечего: все ${already.length} записей уже в вики` : "переносить нечего");
+      return already.length ? 0 : 3;
+    }
     const bySection = {};
     for (const it of items) bySection[it.section] = (bySection[it.section] ?? 0) + 1;
     log(`${flags.fix ? "перенесено" : "план переноса (без --fix ничего не записано)"}: ${items.length}`);
     for (const [s, n] of Object.entries(bySection)) log(`  ${String(n).padStart(4)}  -> ${s}`);
     if (!flags.fix) for (const it of items.slice(0, 10)) log(`  ${it.from}  ->  ${it.to}`);
+    if (already.length) log(`уже в вики, повторно не переписываются: ${already.length}`);
     if (needSubject.length) log(`без предмета (дописать руками): ${needSubject.length}`);
     if (needType.length) log(`без типа (проставить руками): ${needType.length}`);
     if (!flags.fix) return 0;

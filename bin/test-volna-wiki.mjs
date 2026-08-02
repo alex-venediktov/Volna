@@ -223,6 +223,13 @@ check("нехватка типа названа", mig.needType.length === 1, Str
 check("уже размеченная запись не трогается дважды",
   planMigration({ files: [{ rel: "git/b.md", text: "# Ветка\n\n**раздел:** process\n**предмет:** список веток\n" }], legacyIndex: idx })
     .items[0].text.match(/\*\*раздел:\*\*/g).length === 1);
+const again = planMigration({
+  files: [{ rel: "delphi-port/a.md", text: legacyRecord }],
+  legacyIndex: idx,
+  targetExists: (t) => t === "process/delphi-port/a.md",
+});
+check("повторный перенос не переписывает перенесённое", again.items.length === 0 && again.already.length === 1,
+  `${again.items.length}/${again.already.length}`);
 
 console.log(`\n${failures ? `ПРОВАЛОВ: ${failures}` : "все проверки пройдены"}`);
 process.exit(failures ? 1 : 0);
