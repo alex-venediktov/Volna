@@ -49,7 +49,7 @@ await runQuietly(async () => {
     const issues = summaryIssues(active.text);
     if (issues?.oversize) {
       lines.push(`  «Состояние» разрослось (${Math.round(issues.size / 1024)} КБ) - ужми до экрана:` +
-        " история в лог, «где что лежит» в knowledge");
+        " история в лог, «где что лежит» в вики");
     }
     if (issues?.missing.length) {
       lines.push(`  в «Состоянии» нет подпунктов ${issues.missing.map((m) => `«${m}»`).join(", ")}` +

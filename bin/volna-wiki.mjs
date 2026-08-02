@@ -18,7 +18,7 @@
  * Корень вики берётся из --root, иначе из SCHEMA.md найденной вики, иначе .volna/wiki.
  * Коды возврата: 0 чисто, 1 ошибки, 2 только предупреждения, 3 сбой инструмента.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULTS, loadSchema, readRecords, verifyAnchor, walkFiles } from "../lib/wiki.mjs";
@@ -137,7 +137,20 @@ export async function run(argv, deps = {}) {
       return 0;
     }
     for (const f of plan.files) write(join(root, f.rel), f.text);
+    // Шард, оставшийся от переименованного или опустевшего этапа, живым не выглядит - агент
+    // откроет его и получит устаревший перечень. Убираем всё, чего нет в плане
+    const planned = new Set(plan.files.map((f) => f.rel));
+    const listDir = deps.listDir ?? ((p) => (existsSync(p) ? readdirSync(p) : []));
+    const remove = deps.remove ?? ((p) => rmSync(p));
+    const dead = [];
+    for (const section of plan.sharded) {
+      for (const name of listDir(join(root, section, "indexes"))) {
+        const rel = `${section}/indexes/${name}`;
+        if (name.endsWith(".md") && !planned.has(rel)) { remove(join(root, rel)); dead.push(rel); }
+      }
+    }
     log(`указателей записано: ${plan.files.length}${plan.sharded.length ? `, шардированы: ${plan.sharded.join(", ")}` : ""}`);
+    if (dead.length) log(`мёртвых шардов удалено: ${dead.length} (${dead.join(", ")})`);
     return 0;
   }
 

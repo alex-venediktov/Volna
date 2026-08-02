@@ -240,7 +240,7 @@ stages_done: [intake, analyze]
     /нет подпунктов .*цель.*сделано.*следующий шаг/.test(c), c);
 
   const s = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
-  check("SessionStart: сказано, куда унести разросшееся", /knowledge/.test(s) && /КБ вместо экрана/.test(s), s);
+  check("SessionStart: сказано, куда унести разросшееся", s.includes(".volna/wiki/") && /КБ вместо экрана/.test(s), s);
 
   // Нормальное резюме по шаблону - ни одного из двух предупреждений.
   write("implement");

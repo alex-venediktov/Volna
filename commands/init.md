@@ -11,9 +11,11 @@ argument-hint: [путь к рабочему репозиторию]
    корнем репозитория (рядом `.git`): «Волна» ищет `.volna` вверх только до корня, и развёрнутая
    в подкаталоге проектная часть не найдётся из соседних каталогов проекта.
 2. **Создай отсутствующее:**
-   - `.volna/journal/`, `.volna/journal/logs/` (там лежат логи итераций), `.volna/knowledge/`;
-   - `.volna/knowledge/INDEX.md` из `skills/volna-journal/templates/knowledge-index.template.md`
-     — без указателя этапы не найдут накопленное знание;
+   - `.volna/journal/`, `.volna/journal/logs/` (там лежат логи итераций);
+   - **вику выводов** — `node "${CLAUDE_PLUGIN_ROOT}/bin/volna-wiki.mjs" init`: она развернёт
+     `.volna/wiki/` с соглашениями и разделами `reference`, `project`, `process`, `volna`.
+     Указатели собираются инструментом и руками не правятся — без них этапы не найдут
+     накопленное знание. Каталог уже есть — команда откажется, и это не ошибка;
    - `.volna/feedback.md` из `skills/volna-journal/templates/feedback.template.md` — сюда этап
      `capture` пишет замечания к самому флоу; примеры из шаблона убери, секции оставь;
    - `.volna/project.md` из `skills/volna-flow/templates/project.template.md`;
@@ -21,7 +23,9 @@ argument-hint: [путь к рабочему репозиторию]
 3. **Дополни `.gitignore`** правилами: `.env`, `.env.local`, `.volna/state.json`,
    `.volna/journal/`, `.volna/feedback.md`, `.volna/project.local.md`. Уже присутствующие не
    дублируй. Правило на каталог `journal/` покрывает и логи в `journal/logs/` — отдельного
-   правила для них не нужно. `.volna/knowledge/` и `.volna/project.md` **коммитятся** — в игнор не добавлять.
+   правила для них не нужно. `.volna/wiki/` и `.volna/project.md` **коммитятся** — в игнор не
+   добавлять. Вика вынесена из `.volna/` (корень задан в её `SCHEMA.md`) — проверь игнор по
+   новому пути: при переносе правила за каталогом не следуют.
 4. **Заполни профиль — первым делом, вопросами человеку.** Секция `## Профиль` в
    `.volna/project.md` решает, какие шаги в этом проекте вообще существуют, поэтому спроси её
    вариантами, по одной строке:

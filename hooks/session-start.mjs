@@ -49,7 +49,7 @@ await runQuietly(async () => {
   const issues = summaryIssues(active.text);
   if (issues?.oversize) {
     lines.push(`«Состояние» разрослось до ${Math.round(issues.size / 1024)} КБ вместо экрана: ` +
-      "историю унеси в лог, «где что лежит и как запускается» - в .volna/knowledge/.");
+      "историю унеси в лог, «где что лежит и как запускается» - в .volna/wiki/.");
   }
   if (issues?.missing.length) {
     lines.push(`В «Состоянии» нет подпунктов ${issues.missing.map((m) => `**${m}:**`).join(", ")} - ` +
