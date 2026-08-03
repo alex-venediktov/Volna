@@ -15,4 +15,4 @@
 и уезжает своим коммитом. Правило про один коммит касается основной массы знания, а не запрещает
 возврат.
 
-**связи:** [[flow-active-task-gates-commit]], [[feedback-not-chat]]
+**связи:** [[flow-active-task-gates-commit]], [[feedback-not-chat]], [[flow-move-stage-move-tails]]
