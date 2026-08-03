@@ -299,7 +299,7 @@ export function loadActive(cwd, { respectMute = true } = {}) {
 /** Порядок этапов флоу - для позиции k/N в шапке. Коммит входит в deliver, своего этапа нет. */
 export const STAGES = [
   "intake", "analyze", "spec", "plan", "implement", "advocate", "fixtures",
-  "unit-tests", "visual", "deliver", "close", "cleanup", "capture",
+  "unit-tests", "visual", "capture", "deliver", "close", "cleanup",
 ];
 
 /** Позиция этапа в флоу, 1-based; 0 - этап неизвестен. */

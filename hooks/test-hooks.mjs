@@ -6,7 +6,8 @@ import { mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, existsS
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { readProfile, hasTracker, isPlaceholder, parseFrontmatter } from "./lib/volna-state.mjs";
+import { readProfile, hasTracker, isPlaceholder, parseFrontmatter, STAGES, stagePosition }
+  from "./lib/volna-state.mjs";
 
 const volnaRoot = process.argv[2] || process.cwd();
 const sandbox = join(tmpdir(), "claude", "volna-hooks-test");
@@ -563,6 +564,14 @@ updated: 2026-07-30T11:00
   writeFileSync(join(volnaDir, "journal", "TASK-21571.md"), "нет frontmatter вообще", "utf8");
   const r2 = run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" });
   check("журнал без frontmatter: код 0", r2.code === 0, `code=${r2.code}`);
+}
+
+// --- 10. Порядок этапов: позиция k/N в шапке ----------------------------------
+{
+  check("порядок этапов: capture идёт перед deliver", stagePosition("capture") === 10, `${stagePosition("capture")}`);
+  check("порядок этапов: deliver одиннадцатый", stagePosition("deliver") === 11, `${stagePosition("deliver")}`);
+  check("порядок этапов: cleanup закрывает флоу", stagePosition("cleanup") === STAGES.length, `${stagePosition("cleanup")}/${STAGES.length}`);
+  check("порядок этапов: имя вне списка даёт 0", stagePosition("push-pr") === 0, `${stagePosition("push-pr")}`);
 }
 
 console.log(failures === 0 ? "\nВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" : `\nПРОВАЛОВ: ${failures}`);

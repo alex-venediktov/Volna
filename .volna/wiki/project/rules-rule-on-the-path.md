@@ -18,4 +18,5 @@
 Отсюда практика при выпуске версии: правку правила ставить туда, куда смотрят **в момент
 действия**, а вынесенное в `references/` считать обоснованием, а не инструкцией.
 
-**связи:** [[rules-command-text-outweighs-stage-file]], [[cost-skill-body-unload]]
+**связи:** [[rules-command-text-outweighs-stage-file]], [[cost-skill-body-unload]],
+[[plugin-stage-order-lives-in-code-too]]
