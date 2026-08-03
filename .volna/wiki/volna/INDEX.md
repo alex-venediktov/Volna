@@ -7,9 +7,9 @@
 
 | Куда | Вид | Предмет | Тип | Этапы | Описание |
 |---|---|---|---|---|---|
-| [analyze](INDEX--analyze.md) | узел · 3 | возврат к задаче, подсказка у поля ввода, типы записей вики | ограничение, порядок, термин | analyze, plan, implement, deliver, capture, intake | - |
+| [analyze](INDEX--analyze.md) | узел · 4 | возврат к задаче, подсказка у поля ввода, поиск маршрута по указателю | ограничение ×2, порядок, термин | analyze, plan, implement, deliver, capture, intake | - |
 | [spec](INDEX--spec.md) | узел · 1 | остановы и вопросы | договорённость | spec, deliver, close, intake | - |
-| [plan](INDEX--plan.md) | узел · 7 | автопроход, длинная задача, оси дробления указателя, подсказка у поля ввода | ограничение ×3, порядок ×3, договорённость | analyze, plan, implement, deliver, close, capture, intake | - |
+| [plan](INDEX--plan.md) | узел · 8 | автопроход, длинная задача, оси дробления указателя, подсказка у поля ввода | ограничение ×4, порядок ×3, договорённость | analyze, plan, implement, deliver, close, capture, intake | - |
 | [advocate](INDEX--advocate.md) | узел · 1 | возврат к этапу | порядок | advocate, implement, unit-tests, visual | - |
 | [implement](INDEX--implement.md) | узел · 9 | автопроход, длинная задача, возврат к задаче, возврат к этапу | ограничение ×3, порядок ×3, гейт | analyze, plan, advocate, implement, unit-tests, visual, deliver, close, capture, intake | - |
 | [unit-tests](INDEX--unit-tests.md) | узел · 2 | возврат к этапу, обновление плагина | ограничение, порядок | advocate, implement, unit-tests, visual | - |
