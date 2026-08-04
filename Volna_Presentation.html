@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>«Волна» — ведение задачи в одной сессии Claude Code</title>
+<style>
+:root{
+  --page:#f9f9f7; --card:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --mut:#898781;
+  --line:#e1e0d9; --axis:#c3c2b7; --accent:#2a78d6; --accent-soft:#cde2fb;
+  --accent-mid:#86b6ef; --good:#0ca30c; --warn:#fab219; --crit:#d03b3b;
+  --ring:rgba(11,11,11,0.10);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --page:#0d0d0d; --card:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --mut:#898781;
+    --line:#2c2c2a; --axis:#383835; --accent:#3987e5; --accent-soft:#184f95;
+    --accent-mid:#256abf; --ring:rgba(255,255,255,0.10);
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--page); color:var(--ink);
+  font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+.deck{max-width:1080px; margin:0 auto; padding:26px 18px 60px}
+
+nav.toc{
+  background:var(--card); border:1px solid var(--line); border-radius:14px;
+  padding:16px 20px; margin:0 0 22px; font-size:14px;
+}
+nav.toc b{display:block; margin-bottom:8px; font-size:13px; color:var(--mut); font-weight:600;
+  text-transform:uppercase; letter-spacing:.06em}
+nav.toc ol{margin:0; padding-left:22px; columns:2; column-gap:28px}
+nav.toc a{color:var(--ink2); text-decoration:none}
+nav.toc a:hover{color:var(--accent); text-decoration:underline}
+
+section.slide{
+  background:var(--card); border:1px solid var(--line); border-radius:14px;
+  padding:26px 30px 28px; margin:0 0 20px; position:relative;
+}
+section.slide::after{
+  content:attr(data-n); position:absolute; right:18px; top:14px;
+  font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums;
+}
+.slide h1{margin:0 0 8px; font-size:30px; line-height:1.2}
+.slide h2{margin:0 0 4px; font-size:22px; color:var(--accent); line-height:1.25}
+.slide h3{margin:22px 0 8px; font-size:16px; letter-spacing:.01em}
+.lead{margin:2px 0 18px; color:var(--ink2); font-size:15px; max-width:80ch}
+p{margin:0 0 12px; max-width:88ch}
+ul,ol{margin:0 0 12px; padding-left:22px; max-width:88ch}
+li{margin:0 0 6px}
+code{
+  font:13.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;
+  background:var(--page); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
+}
+pre{
+  background:var(--page); border:1px solid var(--line); border-radius:9px;
+  padding:12px 14px; overflow-x:auto; margin:0 0 14px;
+  font:13.5px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--ink2);
+}
+pre b{color:var(--ink); font-weight:600}
+.small{font-size:13.5px; color:var(--ink2)}
+.note{
+  font-size:13.5px; color:var(--ink2); border-left:3px solid var(--accent-mid);
+  padding:6px 0 6px 12px; margin:14px 0 0;
+}
+.warn{border-left-color:var(--warn)}
+
+.scroll{overflow-x:auto; margin:0 0 14px}
+table{border-collapse:collapse; width:100%; font-size:14px}
+th,td{border:1px solid var(--line); padding:7px 10px; text-align:left; vertical-align:top}
+th{background:var(--page); color:var(--ink2); font-weight:600; font-size:13px}
+td.num,th.num{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+
+.tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:0 0 16px}
+.tile{background:var(--page); border:1px solid var(--line); border-radius:11px; padding:13px 15px}
+.tile .v{font-size:26px; font-weight:650; line-height:1.1; color:var(--ink)}
+.tile .k{font-size:12.5px; color:var(--ink2); margin-top:4px}
+
+.cols{display:grid; grid-template-columns:1fr 1fr; gap:22px}
+.cols3{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px}
+@media (max-width:760px){.cols,.cols3{grid-template-columns:1fr} nav.toc ol{columns:1}}
+
+.stages{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:9px; margin:4px 0 14px}
+.stage{border:1px solid var(--line); border-radius:10px; padding:9px 11px; background:var(--page)}
+.stage .n{font-size:11.5px; color:var(--mut); font-variant-numeric:tabular-nums}
+.stage .t{font-weight:600; font-size:14px; margin:1px 0 2px}
+.stage .d{font-size:12.5px; color:var(--ink2)}
+.stage.req{border-color:var(--accent); box-shadow:inset 3px 0 0 var(--accent)}
+.stage.exp{box-shadow:inset 3px 0 0 var(--accent-mid)}
+.stage.opt{box-shadow:inset 3px 0 0 var(--axis)}
+.legend{display:flex; flex-wrap:wrap; gap:16px; font-size:13px; color:var(--ink2); margin:0 0 12px}
+.legend span{display:inline-flex; align-items:center; gap:7px}
+.swatch{width:13px; height:13px; border-radius:3px; display:inline-block}
+
+.bars{margin:6px 0 10px}
+.bar-row{display:grid; grid-template-columns:minmax(150px,232px) 1fr 74px; align-items:center;
+  gap:11px; margin:0 0 7px; font-size:13.5px}
+.bar-row .lbl{color:var(--ink2)}
+.bar-track{background:var(--page); border:1px solid var(--line); border-radius:5px; height:15px; overflow:hidden}
+.bar-fill{height:100%; background:var(--accent); border-radius:0 4px 4px 0}
+.bar-fill.soft{background:var(--accent-mid)}
+.bar-fill.mut{background:var(--axis)}
+.bar-row .val{text-align:right; font-variant-numeric:tabular-nums; color:var(--ink)}
+
+.chart{margin:6px 0 10px}
+.chart text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+
+.case{border:1px solid var(--line); border-radius:11px; padding:14px 16px; background:var(--page)}
+.case h3{margin:0 0 6px; font-size:15px; color:var(--accent)}
+.case .profile{font:12.5px/1.5 ui-monospace,Consolas,monospace; color:var(--ink2); margin:8px 0 8px;
+  white-space:pre-wrap}
+.case p{font-size:13.5px; margin:0 0 8px}
+.case ul{font-size:13.5px; padding-left:19px; margin:0}
+
+.kv{font-size:14px}
+.kv div{display:flex; gap:10px; padding:5px 0; border-bottom:1px solid var(--line)}
+.kv div:last-child{border-bottom:0}
+.kv b{flex:0 0 200px; font-weight:600}
+
+footer{color:var(--mut); font-size:12.5px; text-align:center; padding:8px 0 0}
+
+@media print{
+  body{background:#fff}
+  nav.toc{display:none}
+  section.slide{break-after:page; border:0; padding:0 0 12px; margin:0 0 20px}
+  .deck{max-width:none; padding:0}
+}
+</style>
+</head>
+<body>
+<div class="deck">
+
+<nav class="toc">
+  <b>Содержание</b>
+  <ol>
+    <li><a href="#s1">Что такое «Волна»</a></li>
+    <li><a href="#s2">Что она лечит</a></li>
+    <li><a href="#s3">Устройство: два плагина и файлы</a></li>
+    <li><a href="#s4">Карта тринадцати этапов</a></li>
+    <li><a href="#s5">Автопроход и точки остановки</a></li>
+    <li><a href="#s6">Журнал работ: два слоя</a></li>
+    <li><a href="#s7">Wiki выводов: как устроена</a></li>
+    <li><a href="#s8">Как wiki пополняется</a></li>
+    <li><a href="#s9">Как wiki работает на вас дальше</a></li>
+    <li><a href="#s10">Настройки проекта: универсальность</a></li>
+    <li><a href="#s11">Три простых проекта</a></li>
+    <li><a href="#s12">Большой пример: порт desktop-приложения</a></li>
+    <li><a href="#s13">Что накопили журнал и wiki</a></li>
+    <li><a href="#s14">Цена и честные ограничения</a></li>
+    <li><a href="#s15">Как начать и что дальше</a></li>
+  </ol>
+</nav>
+
+<!-- 1 -->
+<section class="slide" id="s1" data-n="1 / 15">
+  <h1>«Волна»</h1>
+  <p class="lead">Сопровождение одной задачи в одной сессии Claude Code: мягкая последовательность
+  этапов от приёма задачи до pull request и закрытия, журнал работ, который восстанавливает
+  контекст с нуля, и wiki выводов, которая переносит опыт из задачи в задачу.</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="v">13</div><div class="k">этапов, из них три необратимых</div></div>
+    <div class="tile"><div class="v">45</div><div class="k">задач проведено с журналом</div></div>
+    <div class="tile"><div class="v">940</div><div class="k">выводов в wiki проекта</div></div>
+    <div class="tile"><div class="v">~1,9 тыс.</div><div class="k">токенов постоянной цены на сессию</div></div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h3>Что это по сути</h3>
+      <ul>
+        <li>плагин к Claude Code — набор команд и правил внутри сессии, не отдельная программа
+            и не сервер;</li>
+        <li>работает только там, где развёрнута проектная часть — каталог <code>.volna/</code>
+            в корне репозитория;</li>
+        <li>процесс ведёт человек: этапы — предпочтительный порядок, а не рельсы;</li>
+        <li>задача берётся из TFS по номеру или заводится своими словами.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Чем «Волна» не является</h3>
+      <ul>
+        <li>не оркестратор агентов: одна задача, один прогретый контекст;</li>
+        <li>не второй трекер: у задачи один хозяин — TFS команды;</li>
+        <li>не таймшит: часы списывает человек, «Волна» лишь подсказывает сумму по меткам журнала;</li>
+        <li>не защита от человека: необратимое требует прямого «да».</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="slide" id="s2" data-n="2 / 15">
+  <h2>Что она лечит</h2>
+  <p class="lead">Четыре потери, которые незаметны в моменте и очень дороги через неделю.</p>
+
+  <div class="scroll">
+  <table>
+    <tr><th style="width:31%">Потеря</th><th>Как выглядит</th><th style="width:34%">Ответ «Волны»</th></tr>
+    <tr>
+      <td><b>Контекст живёт в голове</b></td>
+      <td>Сессия оборвалась, контекст сжался, прошли выходные — и разбор постановки, найденные
+          строки эталона, отвергнутые варианты нужно добывать заново.</td>
+      <td>Журнал из двух файлов: короткое «Состояние» размером с экран и подробный лог итераций.
+          Возврат к задаче — чтение файла, а не памяти сессии.</td>
+    </tr>
+    <tr>
+      <td><b>Опыт не переезжает</b></td>
+      <td>Тот же подвох ловится в третий раз, потому что в первый он остался в переписке,
+          а во второй — в голове того, кто уже ушёл на другую задачу.</td>
+      <td>Этап сбора опыта стоит <b>до</b> commit, поэтому вывод уезжает тем же коммитом,
+          что и код, и достаётся из wiki в следующей задаче.</td>
+    </tr>
+    <tr>
+      <td><b>Необратимое делается походя</b></td>
+      <td>Commit без следа в журнале, push до того, как решено доставлять, статус в TFS
+          передвинут «за компанию».</td>
+      <td>Три этапа помечены как необратимые и требуют явного «да». Hook останавливает
+          commit и push, если по текущему этапу нет записи в журнале.</td>
+    </tr>
+    <tr>
+      <td><b>Правила проекта живут в чате</b></td>
+      <td>Соглашение о ветках, стиль сообщения коммита, запрет догадок при порте —
+          каждый раз пересказываются заново и каждый раз чуть иначе.</td>
+      <td>Один файл настроек проекта на команду плюс правила ремесла отдельным плагином.
+          Правило мешает — правим правило, а не обходим молча.</td>
+    </tr>
+  </table>
+  </div>
+
+  <p class="note">Главный принцип: <b>исследование, у которого нет журнала, через неделю
+  неотличимо от несделанного</b>. Поэтому журнал ведётся и там, где задачи в TFS нет вовсе.</p>
+</section>
+
+<!-- 3 -->
+<section class="slide" id="s3" data-n="3 / 15">
+  <h2>Устройство: два плагина и файлы на диске</h2>
+  <p class="lead">Процесс и ремесло разделены сознательно: второй плагин ставят только те, кому
+  нужны строгие правила порта и оформления.</p>
+
+  <div class="cols">
+    <div>
+      <h3>Плагин «процесс»</h3>
+      <ul>
+        <li>карта тринадцати этапов, уровни обязательности, автопроход;</li>
+        <li>формат журнала: состояние задачи и лог итераций;</li>
+        <li>по одной команде на каждый этап плюс служебные: проверка настроек, статус,
+            пропуск, запись в журнал, чек-пойнт, поиск по накопленному;</li>
+        <li>hooks: шапка сессии и гейт на commit и push;</li>
+        <li>CLI над TFS: чтение задач, создание, связи, вложения, статусы, часы.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Плагин «ремесло»</h3>
+      <ul>
+        <li>порт поведения по эталонной реализации строго 1:1, без эвристик и подбора значений;</li>
+        <li>формат комментариев в коде: одна строка «что делает и откуда взято»;</li>
+        <li>сообщение коммита и момент коммита;</li>
+        <li>стиль тестов и fixtures — оффлайн-снимки данных вместо живой БД;</li>
+        <li>пиксельная сверка вывода с эталонным изображением.</li>
+      </ul>
+      <p class="small">Плагин обезличен от конкретного продукта: метод — в плагине,
+      подробности проекта — в его настройках.</p>
+    </div>
+  </div>
+
+  <h3>Что где лежит и что уезжает команде</h3>
+  <div class="scroll">
+  <table>
+    <tr><th style="width:34%">Файл в рабочем репозитории</th><th>Назначение</th><th class="num">В git</th></tr>
+    <tr><td><code>.volna/project.md</code></td><td>настройки проекта: профиль, команды сборки и тестов, конвенции</td><td class="num">да</td></tr>
+    <tr><td><code>.volna/wiki/</code></td><td>wiki выводов: записи и указатели</td><td class="num">да</td></tr>
+    <tr><td><code>.volna/journal/TASK-&lt;id&gt;.md</code></td><td>состояние задачи — источник правды при возврате</td><td class="num">нет</td></tr>
+    <tr><td><code>.volna/journal/logs/TASK-&lt;id&gt;.log.md</code></td><td>лог итераций по этапам, append-only</td><td class="num">нет</td></tr>
+    <tr><td><code>.volna/feedback.md</code></td><td>замечания к самому флоу, разбираются при выпуске версии плагина</td><td class="num">нет</td></tr>
+    <tr><td><code>.env</code></td><td>адреса, пути, путь к файлу с PAT</td><td class="num">нет</td></tr>
+  </table>
+  </div>
+  <p class="note">Секретов в переменных окружения нет: в <code>.env</code> лежит <b>путь</b> к файлу
+  с PAT, а не сам токен. Адреса серверов и машинные пути не покидают рабочую машину.</p>
+</section>
+
+<!-- 4 -->
+<section class="slide" id="s4" data-n="4 / 15">
+  <h2>Карта тринадцати этапов</h2>
+  <p class="lead">Имя этапа — одновременно имя команды, имя файла с деталями и значение
+  <code>stage</code> в журнале. Расхождение в этих четырёх местах означает, что что-то одно неверно.</p>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--accent)"></i> required: необратимое, только по прямому «да»</span>
+    <span><i class="swatch" style="background:var(--accent-mid)"></i> expected: по умолчанию делаем, пропуск с причиной в журнал</span>
+    <span><i class="swatch" style="background:var(--axis)"></i> optional: по ситуации</span>
+  </div>
+
+  <div class="stages">
+    <div class="stage req"><div class="n">1</div><div class="t">intake</div><div class="d">принять задачу, карточка, журнал</div></div>
+    <div class="stage exp"><div class="n">2</div><div class="t">analyze</div><div class="d">постановка, эталон, похожие фиксы</div></div>
+    <div class="stage exp"><div class="n">3</div><div class="t">spec</div><div class="d">своими словами, вопросы человеку</div></div>
+    <div class="stage exp"><div class="n">4</div><div class="t">plan</div><div class="d">план по файлам, Active в TFS</div></div>
+    <div class="stage exp"><div class="n">5</div><div class="t">implement</div><div class="d">ветка и итерации правок</div></div>
+    <div class="stage exp"><div class="n">6</div><div class="t">advocate</div><div class="d">адвокат дьявола по полному диффу</div></div>
+    <div class="stage opt"><div class="n">7</div><div class="t">fixtures</div><div class="d">оффлайн-снимок данных</div></div>
+    <div class="stage exp"><div class="n">8</div><div class="t">unit-tests</div><div class="d">тесты по конвенциям проекта</div></div>
+    <div class="stage opt"><div class="n">9</div><div class="t">visual</div><div class="d">сверка картинки, вердикт человека</div></div>
+    <div class="stage exp"><div class="n">10</div><div class="t">capture</div><div class="d">опыт в wiki — до commit</div></div>
+    <div class="stage req"><div class="n">11</div><div class="t">deliver</div><div class="d">commit, задача-фикс, push, PR</div></div>
+    <div class="stage req"><div class="n">12</div><div class="t">close</div><div class="d">статусы, часы, маршрут тестировщику</div></div>
+    <div class="stage exp"><div class="n">13</div><div class="t">cleanup</div><div class="d">ветки, временное, конец задачи</div></div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h3>Три решения, которые видно на карте</h3>
+      <ul>
+        <li><b>Commit — не отдельный этап.</b> Это первый шаг доставки: одно «да» на commit,
+            push и PR, а не три подряд.</li>
+        <li><b>Capture стоит перед deliver.</b> Записанное после доставки требует второго
+            коммита и обычно не записывается вовсе — контекст задачи уже исчез.</li>
+        <li><b>Cleanup идёт последним.</b> Он снимает активную задачу, а она держит гейт
+            на commit, поэтому раньше доставки её снимать нельзя.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Ветвление по типу задачи</h3>
+      <ul>
+        <li><b>bug</b> — analyze включает постановку родительской story и проверку, не рекламация
+            ли это; задача-фикс создаётся до push, чтобы в PR стоял её номер, а не номер бага;</li>
+        <li><b>story</b> — analyze собирает подзадачи и их статусы, дальше либо close, либо
+            заведение задач на пробелы и новая итерация spec;</li>
+        <li><b>task</b> — полный путь: в проекте с эталоном это прямой порт;</li>
+        <li><b>research</b> — разбор входного текста и поиск по накопленному; ветка нужна
+            только если работа кончается кодом.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide" id="s5" data-n="5 / 15">
+  <h2>Автопроход и точки остановки</h2>
+  <p class="lead">Этапы с первого по десятый идут одной цепочкой в том же ходе: пока продолжение
+  единственное, «Волна» не ждёт команды, а сообщает «этап закрыт, иду в следующий» и работает дальше.</p>
+
+  <pre>/volna:task 21571          <b>→ intake → analyze → spec → plan → implement ⇄ advocate →
+                             unit-tests → visual → capture</b>   один ход
+/volna:deliver             commit, задача-фикс в TFS, push, pull request
+/volna:close               часы, остаток, статусы, маршрут тестировщику
+/volna:cleanup             ветки, временное, конец задачи</pre>
+
+  <div class="cols">
+    <div>
+      <h3>Ход отдаётся человеку только там, где иначе нельзя</h3>
+      <ul>
+        <li><b>развилка</b>, которую флоу не решает: два одинаково правильных поведения;</li>
+        <li><b>СТОП-критерий</b>: расхождение с эталоном, нет исходника, двусмысленная постановка;</li>
+        <li><b>нужен сам человек</b>: вердикт по картинке, ответ по постановке, доступ, взгляд на дифф;</li>
+        <li><b>граница доставки</b>: в deliver автопроход не входит.</li>
+      </ul>
+      <p class="small">Ход, которым работа отдаётся человеку, кончается ровно одной строкой с
+      готовой командой следующего шага без параметров — её принимает Tab у поля ввода.</p>
+    </div>
+    <div>
+      <h3>Движение назад и в сторону</h3>
+      <ul>
+        <li><b>повторный вызов этапа — новая итерация</b>, а не переигровка: прошлые секции лога
+            остаются как были, переписывается только «Состояние»;</li>
+        <li><b>любая доработка кода</b> — новая итерация implement, за ней снова advocate;
+            цикл крутится сам, пока адвокат не скажет «чисто»;</li>
+        <li><b>пропуск</b> — просто команда следующего этапа, причина уходит в журнал при переходе;</li>
+        <li><b>законный короткий путь</b>: intake → analyze → close → cleanup, когда изменения
+            кода не требуются. Пустой коммит в этом случае делать нельзя.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="note warn">На длинной задаче — от восьми часов или четырёх этапов одним ходом —
+  чек-пойнт становится шагом внутри цепочки: журнал дописывается до состояния, восстановимого
+  с нуля. Capture стоит последним, то есть на исходе бюджета контекста, а знание, записанное
+  в оборванном ходе, теряется целиком.</p>
+</section>
+
+<!-- 6 -->
+<section class="slide" id="s6" data-n="6 / 15">
+  <h2>Журнал работ: два слоя в двух файлах</h2>
+  <p class="lead">Разделение не стилистическое: Read открывает файл целиком, а лог итераций
+  на живой задаче доходит до сотен килобайт.</p>
+
+  <div class="cols">
+    <div>
+      <h3>Состояние задачи — размером с экран</h3>
+      <ul>
+        <li>frontmatter: номер, тип, ветка, репозитории, текущий этап, пройденное, открытые вопросы;</li>
+        <li>секция «Состояние»: цель, установленное, решение, отвергнутое, следующий шаг;</li>
+        <li>переписывается на границе отдачи хода и на чек-пойнте;</li>
+        <li>это <b>источник правды</b>: противоречит логу — прав он.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Лог итераций — только append</h3>
+      <ul>
+        <li>секция на каждый этап и каждую итерацию: зачем, что сделано, применённые выводы;</li>
+        <li>метка времени берётся у часов, а не оценивается по ходу: по этим меткам считаются
+            списываемые часы на close;</li>
+        <li>открывается адресно, когда «Состояние» на него ссылается;</li>
+        <li>отвечает на вопрос «почему так вышло», а не «как обстоят дела».</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Так выглядит frontmatter живой задачи</h3>
+  <pre>task: 21905
+type: task
+branch: feature/21905_spr_list_report
+repos: [back, front]
+stage: <b>push-pr</b>
+stages_done: [intake, analyze, spec, plan, implement, unit-tests, commit, push-pr]
+open:
+  - "Ожидает слияния: PR 2772 (back) после PR 2770, затем PR 2773 (front)"
+  - "Отклонение от паттерна записано в документ отклонений, отдельная подзадача не заведена"
+  - "Время в TFS списывает человек: оценка 8 ч, списано 4 ч"</pre>
+
+  <div class="tiles">
+    <div class="tile"><div class="v">45</div><div class="k">файлов состояния задач</div></div>
+    <div class="tile"><div class="v">2,5 МБ</div><div class="k">объём журналов проекта</div></div>
+    <div class="tile"><div class="v">328 КБ</div><div class="k">самый большой лог одной задачи</div></div>
+    <div class="tile"><div class="v">1 ход</div><div class="k">возврат к задаче после перерыва</div></div>
+  </div>
+  <p class="note">Перед <code>/compact</code> — чек-пойнт, иначе журнал отстанет от реальности.
+  Шапка каждого сообщения показывает номер задачи, этап <code>k/13</code>, до трёх открытых
+  пунктов и напоминание, если журнал давно не дописан.</p>
+</section>
+
+<!-- 7 -->
+<section class="slide" id="s7" data-n="7 / 15">
+  <h2>Wiki выводов: как устроена</h2>
+  <p class="lead">Единица хранения — один вывод. Заголовок записи это утверждение, а не тема:
+  «условие режима управляет наполнением списка, а не выполнением шага» — читается и применяется,
+  «режимы расчёта» — нет.</p>
+
+  <div class="cols">
+    <div>
+      <h3>Обязательные части записи</h3>
+      <ul>
+        <li><b>тип</b>: гейт, magic-число, направление, особый случай, порядок, побочный эффект,
+            ограничение, термин, договорённость, конфликт, расхождение, приём;</li>
+        <li><b>предмет</b> и <b>этапы</b>, на которых запись пригодится — по ним она находится;</li>
+        <li><b>вывод</b>: что именно установлено, в утвердительной форме;</li>
+        <li><b>источник</b>: для выводов об эталоне — файл, номер строки и <b>дословная цитата</b>;</li>
+        <li><b>проверено</b>: номер задачи или дата.</li>
+      </ul>
+      <p class="small">Пороги держат записи читаемыми: 4–20 строк на запись (жёсткий предел 40),
+      200 строк на файл (жёсткий 400), 300 строк на указатель.</p>
+    </div>
+    <div>
+      <h3>Раскладка</h3>
+      <ul>
+        <li><b>reference</b> — выводы об эталонной реализации, плотные файлы подтем: соседние
+            выводы взаимно контекстны и порознь вводят в заблуждение;</li>
+        <li><b>process</b> — приёмы и ограничения самой работы: по одному файлу на вывод;</li>
+        <li>первый уровень внутри reference — <b>канал вывода</b> (экран, экспорт, общее),
+            второй — конкретный вид;</li>
+        <li>подтемы заранее не задаются: их предлагает шаг слияния по факту извлечения.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Как выглядит запись с якорем в эталоне</h3>
+  <pre># Статус «в работе» фиксируется отдельным подтверждением и при откате не снимается
+
+<b>тип:</b> порядок · <b>предмет:</b> очередь заданий · <b>этапы:</b> analyze, implement
+
+<b>вывод:</b> транзакция одна на задание. Первым делом заданию ставится статус «в работе», и это
+подтверждается немедленно, отдельным вызовом. Rollback при ошибке снимает результаты расчёта,
+но не снимает статус: задание остаётся помеченным как взятое в работу.
+
+<b>источник:</b>
+- <i>&lt;модуль&gt;.pas:1890</i> — `SetJobInWorkStatus(TransactionDM, Job.inOrder, Job.inBatch);`
+- <i>&lt;модуль&gt;.pas:2076</i> — `TransactionDM.DBRollback;`</pre>
+</section>
+
+<!-- 8 -->
+<section class="slide" id="s8" data-n="8 / 15">
+  <h2>Как wiki пополняется</h2>
+  <p class="lead">Пополнение — отдельный этап <code>capture</code> перед доставкой, а не добрая
+  воля в конце дня.</p>
+
+  <div class="cols">
+    <div>
+      <h3>Два выхода этапа, и путать их нельзя</h3>
+      <ul>
+        <li><b>знание о продукте, эталоне, инфраструктуре</b> → wiki проекта: остаётся у команды
+            и уезжает тем же коммитом, что и работа;</li>
+        <li><b>замечание о самом флоу</b> — этап мешал, правило оказалось неверным, шаг
+            систематически пропускался → <code>feedback.md</code>, который разбирается при
+            выпуске новой версии плагина.</li>
+      </ul>
+      <p class="small">Сказанное только в чате до правки правил не доживёт. Накопилось больше
+      пяти открытых замечаний — <code>/volna:doctor</code> напомнит, что их пора разобрать.</p>
+    </div>
+    <div>
+      <h3>Инструмент вместо ручной дисциплины</h3>
+      <div class="kv">
+        <div><b>route «слова задачи»</b><span>какой указатель открыть под эту задачу</span></div>
+        <div><b>place «текст вывода»</b><span>куда положить новую запись: в существующий узел или новый</span></div>
+        <div><b>index</b><span>пересобрать указатели: запись без строки в указателе мертва</span></div>
+        <div><b>lint</b><span>структурные проверки: связи, обязательные поля, пороги</span></div>
+        <div><b>verify</b><span>жива ли цитата и не сдвинулась ли строка в источнике</span></div>
+        <div><b>pairs</b><span>кандидаты на смысловую сверку: общий предмет у разных записей</span></div>
+      </div>
+      <p class="small">Без флага <code>--fix</code> ни одна команда в файлы не пишет.</p>
+    </div>
+  </div>
+
+  <h3>Первичное наполнение в проекте, где wiki пуста</h3>
+  <p><code>/volna:wiki-survey</code> разведает существующий код и выдаст план: горячие места по
+  git-истории, очередь партий, дерево узлов и вопросы человеку. <b>Записей она не создаёт</b> —
+  смысл вывода подтверждает человек, а не грамматика исходников.</p>
+
+  <div class="bars">
+    <div class="bar-row"><span class="lbl">выводы об эталоне (reference)</span>
+      <span class="bar-track"><i class="bar-fill" style="width:82%" title="771 вывод в 117 файлах подтем"></i></span>
+      <span class="val">771</span></div>
+    <div class="bar-row"><span class="lbl">приёмы и ограничения (process)</span>
+      <span class="bar-track"><i class="bar-fill soft" style="width:18%" title="169 записей, по файлу на вывод"></i></span>
+      <span class="val">169</span></div>
+  </div>
+  <p class="small">Wiki одного проекта: <b>940 выводов</b> в 286 файлах, 19 437 строк, 3 МБ —
+  накоплено попутно, за счёт этапа перед доставкой, а не отдельным писательским подходом.</p>
+</section>
+
+<!-- 9 -->
+<section class="slide" id="s9" data-n="9 / 15">
+  <h2>Как wiki работает на вас дальше</h2>
+  <p class="lead">Ценность не в том, что записано, а в том, что найдено и применено в нужный момент.</p>
+
+  <div class="cols3">
+    <div class="case">
+      <h3>Основной путь — указатель внутри этапа</h3>
+      <p>Знание достаётся не отдельной командой, а самим этапом: <code>analyze</code> предписывает
+      KB-поиск, чтение указателя wiki и точный <code>Grep</code> по записям. Маршрут выбирается по
+      колонкам «предмет», «тип», «описание»: открывается один лист указателя, а не раздел целиком.</p>
+      <p class="small">Ручной вопрос человека «что мы вообще знаем по теме» — команда
+      <code>/volna:recall &lt;тема&gt;</code>: она проходит указатель, записи, прошлые журналы и
+      трекер. Пустой ответ законный: тема новая, и запись по ней появится на capture этой задачи.</p>
+    </div>
+    <div class="case">
+      <h3>Применение называется вслух</h3>
+      <p>Обязанность каждого этапа: строкой «по записи такой-то: делаем то-то» — до или вместе
+      с действием. Запись не подошла — сказать так же прямо.</p>
+      <p class="small">Та же строка идёт в журнал: в 45 журналах проекта таких строк <b>109</b>.
+      Так видно, какие выводы реально работают, а какие лежат мёртвым грузом.</p>
+    </div>
+    <div class="case">
+      <h3>Записи не гниют молча</h3>
+      <p><code>/volna:wiki-verify</code> проверяет, жива ли дословная цитата и не сдвинулась ли
+      строка в источнике; окно поиска — сорок строк вокруг прежнего места.</p>
+      <p class="small">Противоречие двух записей оформляется как отдельный тип «конфликт» и
+      закрывается решением человека, а не тихой правкой.</p>
+    </div>
+  </div>
+
+  <h3>Что это меняет на практике</h3>
+  <div class="scroll">
+  <table>
+    <tr><th style="width:47%">Без wiki</th><th>С wiki</th></tr>
+    <tr>
+      <td>Разбор эталона начинается с чистого листа: снова читаются те же тысячи строк, снова
+          выясняется, какое поле кто заполняет.</td>
+      <td>Разбор начинается с готовых выводов и точных ссылок <code>file:line</code>; читается то,
+          чего в wiki ещё нет.</td>
+    </tr>
+    <tr>
+      <td>Подвох ловится повторно, и каждый раз это «неожиданно»: пустой результат при работающем
+          шаге, ноль вместо значения из БД, один флаг порта, покрывающий сразу два флага эталона.</td>
+      <td>Подвох опознаётся по признаку из записи, потому что записан именно признак, а не история
+          «как мы страдали».</td>
+    </tr>
+    <tr>
+      <td>Договорённость («этот формат — сознательное отклонение») живёт в чужой переписке.</td>
+      <td>Договорённость — запись типа «договорённость» или «расхождение», рядом с кодом, в git.</td>
+    </tr>
+  </table>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="slide" id="s10" data-n="10 / 15">
+  <h2>Настройки проекта: одна механика, разные проекты</h2>
+  <p class="lead">Профиль из шести строк отвечает на вопрос «из чего состоит <b>этот</b> проект».
+  Чего в профиле нет, того этапы не делают — молча, без пометки «пропущено» и без напоминаний.</p>
+
+  <div class="scroll">
+  <table>
+    <tr><th style="width:20%">Строка профиля</th><th style="width:26%">Значения</th><th>Что меняется</th></tr>
+    <tr><td><b>репозитории</b></td><td>один | несколько</td><td>один — правки идут туда, где лежит <code>.volna</code>; несколько — роли описывает таблица в настройках</td></tr>
+    <tr><td><b>трекер</b></td><td>нет | tfs</td><td>без трекера все задачи локальные: статусы не двигаются, задача-фикс не создаётся, гейт не держит push</td></tr>
+    <tr><td><b>приём задач</b></td><td>текст | номер | оба</td><td>откуда берётся постановка: своими словами, файлом или из TFS по номеру</td></tr>
+    <tr><td><b>доставка</b></td><td>commit | commit+push | commit+push+PR</td><td>чем кончается этап deliver</td></tr>
+    <tr><td><b>закрытие</b></td><td>журнал | трекер</td><td>куда уходят часы и итог на close</td></tr>
+    <tr><td><b>эталон</b></td><td>нет | delphi</td><td>нужна ли сверка 1:1 с эталонной реализацией и правила порта</td></tr>
+  </table>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h3>Три состояния строки — и они значат разное</h3>
+      <ul>
+        <li><b>заполнена</b> (<code>трекер: нет</code>) — это ответ человека, работаем по нему;</li>
+        <li><b>плейсхолдер шаблона</b> (<code>трекер: &lt;нет|tfs&gt;</code>) — не спрошено:
+            остановиться и спросить, догадка запрещена;</li>
+        <li><b>секции нет вовсе</b> — проект заведён до появления профиля: всё на месте,
+            правок не требуется.</li>
+      </ul>
+      <p class="small">Профиль <b>отключает</b> шаги, но не добавляет новых: свой трекер или своя
+      доставка — это уже проектные скиллы, а не строка профиля.</p>
+    </div>
+    <div>
+      <h3>Что ещё описывает <code>project.md</code></h3>
+      <ul>
+        <li>роли репозиториев и переменные <code>REPO_*</code>, за которыми стоят их пути;</li>
+        <li>эталон: корень исходников, модуль, куда смотреть первым, критичная версия;</li>
+        <li>команды сборки, тестов, запуска, проверки типов — теми же строками, что набирает человек;</li>
+        <li>конвенции: имена ветвей (<code>feature/</code>, <code>bugfix/</code>, <code>task/</code>),
+            формат сообщения коммита, стиль комментариев и тестов;</li>
+        <li>какие проектные скиллы ближе к делу, чем плагинные, — при расхождении прав проектный.</li>
+      </ul>
+      <p class="small">Секретов здесь нет: машинное и приватное — в <code>.env</code>,
+      проверяется командой <code>/volna:doctor</code>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="slide" id="s11" data-n="11 / 15">
+  <h2>Три простых проекта</h2>
+  <p class="lead">Примеры вымышленные — важен не продукт, а профиль и то, какие шаги из-за него
+  исчезают.</p>
+
+  <div class="cols3">
+    <div class="case">
+      <h3>Личный сервис заметок, один разработчик</h3>
+      <div class="profile">репозитории: один
+трекер: нет
+приём задач: текст
+доставка: commit+push
+закрытие: журнал
+эталон: нет</div>
+      <p>Задача заводится словами: <code>/volna:task разобраться, почему поиск не находит заметки
+      с дефисом</code>. Идентификатор собирается из даты и ключевых слов.</p>
+      <ul>
+        <li>исчезают: Active в трекере, задача-фикс, pull request, статусы и списание часов;</li>
+        <li>остаются: журнал, advocate, unit-tests, capture, cleanup;</li>
+        <li>ценность: через месяц видно, что уже пробовали и почему отказались.</li>
+      </ul>
+    </div>
+    <div class="case">
+      <h3>Магазин: back и front, команда из трёх</h3>
+      <div class="profile">репозитории: несколько
+трекер: tfs
+приём задач: оба
+доставка: commit+push+PR
+закрытие: трекер
+эталон: нет</div>
+      <p>Задача берётся по номеру, правки идут в два репозитория, доставка кончается двумя
+      pull request в нужном порядке.</p>
+      <ul>
+        <li>работает всё, кроме правил порта по эталону;</li>
+        <li>wiki наполняется не эталоном, а своими подвохами: особенности расчёта скидок,
+            поведение платёжного шлюза, ограничения выгрузки;</li>
+        <li>ценность: конвенции ветвления и оформления перестают пересказываться в чате.</li>
+      </ul>
+    </div>
+    <div class="case">
+      <h3>Поддержка legacy-сайта</h3>
+      <div class="profile">репозитории: один
+трекер: tfs
+приём задач: номер
+доставка: commit+push
+закрытие: трекер
+эталон: нет</div>
+      <p>Поток однотипных bugfix. Analyze включает постановку родительской story и проверку,
+      не рекламация ли это на уже закрытый фикс.</p>
+      <ul>
+        <li>задача-фикс создаётся до push, чтобы в PR стоял её номер;</li>
+        <li>частый законный путь: intake → analyze → close, «изменения кода не требуются»;</li>
+        <li>ценность: журнал рекламаций и записи «где здесь всегда ломается».</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="note">Самый частый набор для нового проекта — один репозиторий, без трекера, приём
+  текстом, <code>commit+push</code>, закрытие в журнал, без эталона. Развёртывание проектной части
+  (<code>/volna:init</code>) и проверка (<code>/volna:doctor</code>) занимают около пяти минут.</p>
+</section>
+
+<!-- 12 -->
+<section class="slide" id="s12" data-n="12 / 15">
+  <h2>Большой пример: порт desktop-приложения в web</h2>
+  <p class="lead">Реальный проект, на котором «Волна» и обкатывалась: промышленное
+  desktop-приложение на Delphi переносится в .NET-бэкенд и web-клиент, поведение должно совпадать
+  с эталоном 1:1. Трекер и хранилище кода — TFS (Azure DevOps Server): work items, ветки,
+  pull request и списание часов в одном месте.</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="v">135 823</div><div class="k">строки эталона, 157 файлов</div></div>
+    <div class="tile"><div class="v">112 842</div><div class="k">рабочая база без сторонних библиотек</div></div>
+    <div class="tile"><div class="v">1 304</div><div class="k">work items в охвате порта</div></div>
+    <div class="tile"><div class="v">5 147 ч</div><div class="k">списано по закрытым задачам</div></div>
+    <div class="tile"><div class="v">964–1 160 ч</div><div class="k">оценка остатка, вилка</div></div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h3>Из чего состоит эталон, доля рабочей базы</h3>
+      <div class="bars">
+        <div class="bar-row"><span class="lbl">модуль-монолит: отрисовка и расчёты</span>
+          <span class="bar-track"><i class="bar-fill" style="width:100%" title="53 608 строк, 47,5 % рабочей базы"></i></span>
+          <span class="val">47,5 %</span></div>
+        <div class="bar-row"><span class="lbl">покрыто задачами напрямую</span>
+          <span class="bar-track"><i class="bar-fill" style="width:52%" title="27 854 строки"></i></span>
+          <span class="val">24,7 %</span></div>
+        <div class="bar-row"><span class="lbl">слой доступа к данным</span>
+          <span class="bar-track"><i class="bar-fill" style="width:28%" title="14 726 строк"></i></span>
+          <span class="val">13,1 %</span></div>
+        <div class="bar-row"><span class="lbl">не покрыто, требует решения</span>
+          <span class="bar-track"><i class="bar-fill mut" style="width:22%" title="11 878 строк"></i></span>
+          <span class="val">10,5 %</span></div>
+        <div class="bar-row"><span class="lbl">каркас приложения</span>
+          <span class="bar-track"><i class="bar-fill soft" style="width:9%" title="4 776 строк"></i></span>
+          <span class="val">4,2 %</span></div>
+      </div>
+      <p class="small">Почти половина эталона — один модуль на 53 608 строк. Именно такие места
+      делают порт «по памяти» невозможным: каждое значение обязано ссылаться на
+      <code>file:line</code> источника либо быть заглушкой с TODO.</p>
+    </div>
+    <div>
+      <h3>Как проходит типовая задача порта</h3>
+      <div class="kv">
+        <div><b>analyze</b><span>постановка и родительская story в TFS, поиск в wiki по теме, затем строки эталона по KB-поиску</span></div>
+        <div><b>spec</b><span>постановка своими словами; расхождение с эталоном и двусмысленность — стоп и вопрос человеку</span></div>
+        <div><b>plan</b><span>Active в TFS, план по файлам двух репозиториев</span></div>
+        <div><b>implement</b><span>ветка <code>feature/&lt;id&gt;_&lt;slug&gt;</code>, значения только со ссылкой <code>file:line</code> либо заглушка с TODO</span></div>
+        <div><b>advocate</b><span>адвокат дьявола по полному диффу; находка — новая итерация, а не вопрос</span></div>
+        <div><b>fixtures / unit-tests</b><span>оффлайн-снимок заказа вместо живой БД, golden-тест на нём</span></div>
+        <div><b>visual</b><span>сверка вывода со скриншотом эталона, вердикт даёт человек</span></div>
+        <div><b>capture</b><span>гейты, magic-числа и подвохи источника — в wiki, до commit</span></div>
+        <div><b>deliver / close</b><span>commit, push, PR по репозиториям в нужном порядке; часы и статусы — с подтверждением</span></div>
+      </div>
+      <p class="small">Часть работ источника в эталоне не имеет вовсе — это не порт, а новые модули,
+      и в отчётах они считаются отдельной строкой.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 13 -->
+<section class="slide" id="s13" data-n="13 / 15">
+  <h2>Что накопили журнал и wiki на этом проекте</h2>
+  <p class="lead">Только объём накопленного и его состав. Влияние на качество кода здесь не
+  измеряется: «Волна» работала две недели и у одного человека — для таких выводов срок мал.</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="v">45</div><div class="k">задач проведено по этапам с журналом</div></div>
+    <div class="tile"><div class="v">940</div><div class="k">выводов, из них 771 об эталоне</div></div>
+    <div class="tile"><div class="v">19 437</div><div class="k">строк в записях wiki</div></div>
+    <div class="tile"><div class="v">2 недели</div><div class="k">срок обкатки, один человек</div></div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h3>Что записывается в wiki на таком проекте</h3>
+      <ul>
+        <li><b>гейты и magic-числа</b> эталона со ссылками <code>file:line</code> и цитатами —
+            самая частая находка;</li>
+        <li><b>подвохи самого источника</b>: опечатки, мёртвые ветви, закомментированный код,
+            две копии одного каталога;</li>
+        <li><b>приёмы разбора</b>: где искать условие, если шаг работает, а результат пустой;</li>
+        <li><b>договорённости и осознанные расхождения</b> — с указанием, кто и когда решил.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Что из этого видно в работе</h3>
+      <ul>
+        <li>порт перестаёт быть реконструкцией по скриншоту: значение либо доказано строкой
+            источника, либо помечено заглушкой с TODO;</li>
+        <li>найденное расхождение с эталоном называется человеку сразу, а не прячется в описание PR;</li>
+        <li>замечания и проверки человека превращаются в golden-тесты, а не в устную поправку;</li>
+        <li>у задач появилась сопоставимая цена: по меткам журнала видно, сколько ушло на разбор,
+            а сколько на правки.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note">Честная оговорка: срок обкатки — две недели у одного человека, поэтому судить
+  по этим данным о влиянии на качество или скорость разработки нельзя, и таких цифр здесь нет.
+  Проверяемо другое: накопленное существует, находится за один ход, а восстановление задачи после
+  перерыва занимает чтение одного файла.</p>
+</section>
+
+<!-- 14 -->
+<section class="slide" id="s14" data-n="14 / 15">
+  <h2>Цена и честные ограничения</h2>
+  <p class="lead">Решение «оставить шапку сессии или выключить», «ставить ли второй плагин»
+  принимается по замерам, а не по ощущениям.</p>
+
+  <div class="cols">
+    <div>
+      <h3>Из чего складывается цена сессии</h3>
+      <div class="scroll">
+      <table>
+        <tr><th>Слагаемое</th><th>Платится</th><th class="num">Порядок</th></tr>
+        <tr><td>always-on: описания команд и скиллов</td><td>раз за сессию</td><td class="num">~1,9 тыс. токенов</td></tr>
+        <tr><td>тело скилла при вызове</td><td>каждый вызов</td><td class="num">0,2–7 тыс.</td></tr>
+        <tr><td>шапка сессии</td><td>каждое сообщение</td><td class="num">~50–100</td></tr>
+        <tr><td>hooks как процессы</td><td>каждое событие</td><td class="num">0 токенов, 0,42–0,50 с</td></tr>
+      </table>
+      </div>
+      <p class="small">Шапка молчит совсем, когда активной задачи нет: обычный чат в репозитории
+      с «Волной» не дорожает. Диалог на сто сообщений с типичной шапкой — порядка 5–10 тыс.
+      токенов, и это главный кандидат на отключение, если польза не проявится.</p>
+      <p class="small">Что удешевляет работу: один прогретый контекст вместо перезапусков, поиск
+      по базе знаний вместо чтения файлов целиком, вывод как один короткий файл плюс указатель,
+      детали этапа — по одному файлу на этап.</p>
+    </div>
+    <div>
+      <h3>Отвергнуто сознательно</h3>
+      <p class="small">Это не «пока не сделано», а решения, к которым не возвращаемся: оркестратор
+      агентов, worktree на задачу, параллельные задачи, свой web-UI, автоматический сторож
+      контекста по порогам, полноценный таймшит. Всё это противоречит идее одной задачи в одном
+      прогретом контексте.</p>
+      <h3>Ограничения, о которых стоит знать заранее</h3>
+      <ul>
+        <li><b>одна задача за раз</b>: вторая параллельно не ведётся;</li>
+        <li><b>гейт ловит только git из сессии</b>: commit из IDE или соседнего терминала не
+            проверяется — защита процессная, а не техническая;</li>
+        <li><b>один трекер</b>: клиент написан под REST TFS / Azure DevOps Server, Jira и GitLab
+            потребуют своего; работать без трекера — штатный профиль;</li>
+        <li><b>Windows-first</b>: установщик рассчитан на PowerShell, hooks и CLI на Node
+            кроссплатформенны, но проверялись на Windows;</li>
+        <li><b>журналы не шарятся</b>: они в <code>.gitignore</code>, командное знание передаётся
+            только через wiki;</li>
+        <li><b>обкатано на одном проекте и одном человеке</b> — на других командах не проверялось;</li>
+        <li><b>правила этапов — рабочий черновик</b>: правило мешает, правим его, а не обходим молча.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 15 -->
+<section class="slide" id="s15" data-n="15 / 15">
+  <h2>Как начать и что дальше</h2>
+  <p class="lead">Первая задача — примерно за десять минут, из которых пять уходит на установку
+  и заполнение настроек.</p>
+
+  <div class="scroll">
+  <table>
+    <tr><th style="width:8%" class="num">Шаг</th><th style="width:48%">Что делаете</th><th>Что получаете</th><th class="num">Время</th></tr>
+    <tr><td class="num">1</td><td><code>/plugin install</code> — плагин процесса и, по желанию, ремесла</td><td>команды <code>/volna:*</code> и правила в сессии</td><td class="num">2 мин</td></tr>
+    <tr><td class="num">2</td><td><code>/volna:init</code> — отвечаете на шесть вопросов профиля</td><td><code>.volna/</code>, <code>.env</code> из шаблона, правила <code>.gitignore</code></td><td class="num">3 мин</td></tr>
+    <tr><td class="num">3</td><td><code>/volna:doctor</code> — настройки, доступ к TFS, гигиена секретов</td><td>красное чините до первой задачи; отсутствующее по профилю не считается ошибкой</td><td class="num">1 мин</td></tr>
+    <tr><td class="num">4</td><td><code>/volna:task &lt;номер или текст&gt;</code></td><td>карточка задачи, журнал из двух файлов, чек-лист этапов, шапка в каждом сообщении</td><td class="num">1 мин</td></tr>
+    <tr><td class="num">5</td><td>работаете</td><td>этапы идут автопроходом до capture; остановки — только там, где нужны вы</td><td class="num">остальное</td></tr>
+  </table>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h3>Что знать в первый день</h3>
+      <ul>
+        <li><b>«что дальше?»</b> — обычный вопрос в чат; ход, отданный вам, кончается готовой
+            командой следующего шага, её принимает Tab;</li>
+        <li><b>этап не нужен</b> — вызовите команду следующего: причина уйдёт в журнал. Это
+            нормальный путь, а не нарушение;</li>
+        <li><b>отказ гейта — штатное поведение</b>: нет записи по этапу — <code>/volna:journal</code>
+            и повторить; push до начала deliver — войти в deliver или объяснить причину;</li>
+        <li><b>перед <code>/compact</code></b> — <code>/volna:checkpoint</code>, иначе журнал
+            отстанет от реальности.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Итог одной страницей</h3>
+      <ul>
+        <li>тринадцать этапов, из которых десять идут автопроходом, а три необратимых требуют «да»;</li>
+        <li>журнал, по которому задача восстанавливается с нуля за один ход;</li>
+        <li>wiki выводов, которая уезжает в git вместе с кодом;</li>
+        <li>профиль из шести строк, который выключает всё лишнее для конкретного проекта;</li>
+        <li>цена — около 1,9 тыс. токенов на сессию и полсекунды на событие;</li>
+        <li>правила — рабочий черновик, и механизм их правки встроен в сам флоу.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>Все количественные данные — замеры на рабочем проекте и в самом инструменте;
+  примеры проектов на странице 11 вымышленные.</footer>
+</section>
+
+</div>
+</body>
+</html>
