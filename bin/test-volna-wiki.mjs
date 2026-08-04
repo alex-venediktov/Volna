@@ -196,7 +196,60 @@ check("карта размещения ведёт к листу", treePlan.place
 const route = planRoute(deepRows, "экспорт kompas leftview", topicSchema);
 check("маршрут ведёт в нужный лист", route.routes[0]?.rel === "reference/INDEX-export-kompas-leftview--implement--1.md",
   route.routes.map((r) => r.rel).join(","));
-check("маршрут по одному слову из многих не выдаётся", planRoute(deepRows, "downview", topicSchema).routes.length > 0);
+check("запрос из одного слова маршрут выдаёт: половины слов требовать не от чего",
+  planRoute(deepRows, "downview", topicSchema).routes.length > 0);
+
+// --- отбор маршрута по словоформе: запись обязана находиться не только теми словами, которыми
+// её писали. Корпус кириллический: приведение основ существует ради русской морфологии
+const ruRecord = (slug, subject, heading) => ({
+  rel: `volna/${slug}.md`, section: "volna", heading, anchor: slug,
+  subject, type: "порядок", stages: ["analyze"],
+});
+const ruRows = [
+  ruRecord("flow-profile", "профиль проекта", "Профиль решает, какие шаги в проекте существуют"),
+  ruRecord("wiki-index-budget", "порог указателя", "Бюджет считается в байтах, а не в строках"),
+  ruRecord("wiki-index-built", "указатели вики", "Указатели собираются инструментом, а не пишутся"),
+  ruRecord("notify-channel", "канал ntfy", "Канал отдаёт 403 без токена"),
+  ruRecord("wiki-types", "конфликт типов", "Конфликт требует исхода, расхождение - области"),
+  ruRecord("deliver-path", "разрешённый путь", "Путь доставки объявлен в профиле"),
+];
+
+// Множественное число предмета: до приведения основ запрос находил ноль, и пустой ответ читался
+// как «записей по теме нет»
+const plural = planRoute(ruRows, "профили проекта", schema);
+check("словоформа предмета находит запись: «профили проекта» ведёт к «профиль проекта»",
+  plural.hits.length === 1 && plural.hits[0].at.startsWith("volna/flow-profile.md"),
+  plural.hits.map((h) => h.at).join(","));
+check("словоформа работает и на одном слове: «порогов» ведёт к «порог указателя»",
+  planRoute(ruRows, "порогов", schema).hits.some((h) => h.at.startsWith("volna/wiki-index-budget.md")),
+  planRoute(ruRows, "порогов", schema).hits.map((h) => h.at).join(","));
+
+// Порог общей основы - пять знаков: на четырёх однокоренными становятся слова, которые ими не
+// являются, и указатель начинает отвечать на что угодно
+check("общее начало из четырёх знаков основой не считается: «порода» не ведёт к «порогу»",
+  planRoute(ruRows, "порода", schema).hits.length === 0,
+  planRoute(ruRows, "порода", schema).hits.map((h) => h.at).join(","));
+check("короткое имя собственное ищется точным вхождением, а не основой",
+  planRoute(ruRows, "ntfy", schema).hits.length === 1
+  && planRoute(ruRows, "конфета", schema).hits.length === 0,
+  `${planRoute(ruRows, "ntfy", schema).hits.length} / ${planRoute(ruRows, "конфета", schema).hits.length}`);
+check("«ё» и «е» в запросе не различаются",
+  planRoute(ruRows, "разрешенный путь", schema).hits.some((h) => h.at.startsWith("volna/deliver-path.md")),
+  planRoute(ruRows, "разрешенный путь", schema).hits.map((h) => h.at).join(","));
+
+// Отсев хвоста относителен: слабое совпадение по одному частому слову годится, когда сильного нет,
+// и становится шумом, когда есть. Без этого «указатели вики» отдавал каждую запись со словом «вики»
+const strong = planRoute(ruRows, "указатели вики", schema);
+check("сильное совпадение по предмету подавляет слабое по частому слову",
+  strong.hits.length === 1 && strong.hits[0].at.startsWith("volna/wiki-index-built.md"),
+  strong.hits.map((h) => `${h.at}=${h.score}`).join(","));
+const weakOnly = planRoute(ruRows.filter((r) => r.rel !== "volna/wiki-index-built.md"), "указатели вики", schema);
+check("то же слабое совпадение выдаётся, когда сильного в корпусе нет",
+  weakOnly.hits.some((h) => h.at.startsWith("volna/wiki-index-budget.md")),
+  weakOnly.hits.map((h) => h.at).join(","));
+check("чужая тема маршрута не получает",
+  planRoute(ruRows, "термическая обработка стекла", schema).hits.length === 0,
+  planRoute(ruRows, "термическая обработка стекла", schema).hits.map((h) => h.at).join(","));
 
 // --- размещение новой записи в существующей иерархии
 const placeHit = planPlacement(deepRows, "Размеры на виде leftview в kompas при экспорте идут другим шагом", topicSchema);
