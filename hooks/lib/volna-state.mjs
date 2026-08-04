@@ -87,15 +87,50 @@ export function hasTracker(profile) {
   return !(value === "нет" || value === "none");
 }
 
-/** state.json: указатель на активную задачу и признак глушения. */
+/** Ключи верхнего уровня, которые state.json вправе содержать. Всё прочее - опечатка. */
+export const STATE_KEYS = ["active", "updated", "muted"];
+
+/**
+ * state.json: указатель на активную задачу и признак глушения.
+ *
+ * `unknown` - ключи верхнего уровня, которых формат не знает. Отдаются наружу потому, что молчать
+ * о них дороже всего: ключ `active_task` вместо `active` даёт активную задачу «на бумаге» - шапка
+ * не печатается, гейт на коммит не срабатывает, и видно только то, что сопровождения нет.
+ *
+ * Граница тишины hooks проходит здесь: hook молчит о СВОЕЙ ошибке (файла нет, JSON битый - ниже
+ * пустой возврат), но не о битой настройке. Сказать о ней и есть его работа.
+ */
 export function readState(volnaDir) {
   try {
     const raw = readFileSync(join(volnaDir, "state.json"), "utf8");
     const s = JSON.parse(raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw);
-    return { active: s.active ? String(s.active) : null, muted: s.muted === true };
+    const unknown = s && typeof s === "object" && !Array.isArray(s)
+      ? Object.keys(s).filter((k) => !STATE_KEYS.includes(k)) : [];
+    return { active: s.active ? String(s.active) : null, muted: s.muted === true, unknown };
   } catch {
-    return { active: null, muted: false };
+    return { active: null, muted: false, unknown: [] };
   }
+}
+
+/**
+ * Строка предупреждения о неизвестных ключах state.json либо null. Одна на все потребители:
+ * правило действует только там, куда смотрят в момент действия, а смотрят в три разных места.
+ *
+ * Глушение уважается по умолчанию: `/volna:off` просили о тишине, и предупреждение о настройке -
+ * такая же подсказка, как остальные. Исключение одно и то же для всех гейтов: `gate.mjs` зовёт с
+ * `respectMute: false`, потому что там речь о защите необратимого, а не о сопровождении.
+ */
+export function stateKeyWarning(volnaDir, { respectMute = true } = {}) {
+  if (!volnaDir) return null;
+  const { unknown, muted } = readState(volnaDir);
+  if (!unknown.length) return null;
+  if (respectMute && muted) return null;
+  // Список обрезается: файл пишет человек, и опечатка бывает не одна, а строка идёт в шапку,
+  // у которой бюджет
+  const shown = unknown.slice(0, 5).join(", ") + (unknown.length > 5 ? ` и ещё ${unknown.length - 5}` : "");
+  return `в .volna/state.json неизвестные ключи верхнего уровня: ${shown}` +
+    ` - формат знает только ${STATE_KEYS.join(", ")}. Активная задача не опознана:` +
+    " шапка молчит и гейт на коммит не срабатывает.";
 }
 
 /**

@@ -7,7 +7,7 @@
  * добавляется ссылка и три строки резюме. Только точное совпадение по номеру - никакого
  * поиска по смыслу: он стоил бы токенов на каждом сообщении.
  */
-import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, localStamp, STAGES }
+import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, STAGES }
   from "./lib/volna-state.mjs";
 
 const MAX_LINES = 20;
@@ -57,6 +57,11 @@ await runQuietly(async () => {
     }
   }
 
+  // Неопознанный ключ состояния - единственный случай, когда шапка говорит ВНЕ задачи: активной
+  // задачи из-за него и не видно, а значит выход по «нет задачи» сам является последствием
+  const keyWarning = stateKeyWarning(findVolnaDir(input.cwd));
+  if (keyWarning) lines.push(`Волна: ${keyWarning}`);
+
   // Точный подъём референса по номеру из промпта (не активная задача, а упомянутая).
   const mentioned = mentionedTask(input.prompt, active?.task);
   if (mentioned) {
@@ -68,7 +73,7 @@ await runQuietly(async () => {
     }
   }
 
-  if (!lines.length) return;                       // вне задачи система молчит
+  if (!lines.length) return;                       // вне задачи система молчит (кроме битых ключей)
   emitContext("UserPromptSubmit", lines.slice(0, MAX_LINES));
 });
 

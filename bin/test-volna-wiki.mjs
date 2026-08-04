@@ -8,7 +8,7 @@
 import { run, parseArgs, findRoot } from "./volna-wiki.mjs";
 import { parseYamlSubset, loadSchema, slug, field, parseAnchors, readRecords, verifyAnchor, decodeSource, isIndexFile, nodeOf, DEFAULTS } from "../lib/wiki.mjs";
 import { lint } from "../lib/wiki-lint.mjs";
-import { planIndexes, planRoute, planPlacement } from "../lib/wiki-index.mjs";
+import { planIndexes, planRoute, planPlacement, axisName } from "../lib/wiki-index.mjs";
 import { parseLegacyIndex, planFlatten, planMigration, sectionForZone } from "../lib/wiki-migrate.mjs";
 
 let failures = 0;
@@ -144,6 +144,16 @@ check("порог превышен - шардирование по этапам"
 const bytePlan = planIndexes(records, { ...schema, limits: { ...schema.limits, index_file_bytes: 200 } });
 check("порог в байтах режет указатель, уместившийся по строкам", bytePlan.sharded.includes("reference"),
   bytePlan.files.map((f) => f.rel).join(","));
+
+// Ось дробления решает инструмент, значит он же обязан её назвать: до правки строка вывода была
+// жёсткой («по этапам») и лгала при shard_by: [topic]
+check("план отдаёт наружу ось, по которой построен", shardPlan.axis === "по этапам", shardPlan.axis);
+const topicAxis = planIndexes(records, {
+  ...schema, index: { shard_by: ["topic"] }, limits: { ...schema.limits, index_file_lines: 5 },
+});
+check("ось topic называется темами, а не этапами", topicAxis.axis === "по темам", topicAxis.axis);
+check("две оси называются обе", axisName(["topic", "stage"]) === "по темам и по этапам", axisName(["topic", "stage"]));
+check("незнакомая ось печатается как есть, а не молчит", axisName(["zone"]) === "zone", axisName(["zone"]));
 
 // Записи одного этапа из разных подкаталогов: до 15 строк секция остаётся одной таблицей
 const topicRecord = (topic, n) => ({
@@ -290,6 +300,41 @@ const d4 = fakeDeps();
 const codeLint = await run(["lint", "--root", "/w/wiki"], d4);
 check("lint на чистом корпусе возвращает ноль", codeLint === 0, String(codeLint));
 check("неизвестная команда - код 3", await run(["чепуха", "--root", "/w/wiki"], fakeDeps()) === 3);
+
+// --- CLI: выключенная сверка называется вслух. «с якорями: 0» и чистый линт при пустых корнях
+// читаются как «всё в порядке», хотя K016 не выполнялся вовсе и локаторы живут непроверенными
+const SCHEMA_NO_ROOTS = SCHEMA.replace(/reference_roots:\n  - \{[^}]*\}\n/, "");
+const collect = (extra = {}) => {
+  const out = [];
+  return { deps: fakeDeps({ log: (s) => out.push(String(s)), ...extra }), out };
+};
+const noRootsRead = (p) => (String(p).replace(/\\/g, "/").endsWith("SCHEMA.md")
+  ? SCHEMA_NO_ROOTS : fakeDeps().readFile(p));
+
+const statsOff = collect({ readFile: noRootsRead });
+await run(["stats", "--root", "/w/wiki"], statsOff.deps);
+check("stats без reference_roots говорит, что сверка выключена",
+  statsOff.out.some((l) => l.includes("якоря не сверяются")), statsOff.out.join(" | "));
+const statsOn = collect();
+await run(["stats", "--root", "/w/wiki"], statsOn.deps);
+check("stats с объявленным корнем о сверке молчит",
+  !statsOn.out.some((l) => l.includes("якоря не сверяются")), statsOn.out.join(" | "));
+
+const lintOff = collect({ readFile: noRootsRead });
+await run(["lint", "--root", "/w/wiki"], lintOff.deps);
+check("lint без reference_roots признаётся, что K016 не выполнялся",
+  lintOff.out.some((l) => l.includes("якоря не проверялись")), lintOff.out.join(" | "));
+const lintOn = collect();
+await run(["lint", "--root", "/w/wiki"], lintOn.deps);
+check("lint с объявленным корнем о сверке молчит",
+  !lintOn.out.some((l) => l.includes("якоря не проверялись")), lintOn.out.join(" | "));
+
+// Вика, развёрнутая со выключенной сверкой, копит непроверяемые локаторы с первой же записи
+const dInit = fakeDeps({ exists: () => false });
+await run(["init", "--root", "/w/new"], dInit);
+const initSchema = Object.entries(dInit.written).find(([p]) => p.endsWith("SCHEMA.md"))?.[1] ?? "";
+check("init разворачивает вику со включённой сверкой", /reference_roots:/.test(initSchema) && /root: "\."/.test(initSchema),
+  initSchema.slice(0, 120));
 check("разбор флагов со значением", parseArgs(["lint", "--root", "/x", "--json"]).flags.root === "/x");
 // Абсолютный вид пути платформозависим (на Windows добавляется буква диска), проверяем хвост
 const norm = (p) => p.replace(/\\/g, "/");

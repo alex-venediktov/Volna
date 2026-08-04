@@ -2,14 +2,21 @@
 /**
  * SessionStart: если есть активная задача - напомнить, где остановились.
  * Нет задачи, нет .volna/, сопровождение заглушено - молчание (обычный чат не трогаем).
+ * Единственное, о чём говорим вне задачи: неопознанные ключи state.json - из-за них задачи и
+ * «нет», так что молчание здесь было бы последствием дефекта, а не его отсутствием.
  */
-import { readHookInput, loadActive, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, truncate, localStamp, STAGES }
+import { readHookInput, loadActive, findVolnaDir, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, truncate, localStamp, STAGES }
   from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
   const input = await readHookInput();
   const active = loadActive(input.cwd);
-  if (!active) return;
+  if (!active) {
+    // Задачи нет либо она не опознана - разные вещи, и вторая молчала бы так же, как первая
+    const keyWarning = stateKeyWarning(findVolnaDir(input.cwd));
+    if (keyWarning) emitContext("SessionStart", [`Волна: ${keyWarning}`]);
+    return;
+  }
 
   const { fm, task } = active;
   const stage = fm.stage || "?";

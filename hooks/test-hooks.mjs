@@ -566,6 +566,56 @@ updated: 2026-07-30T11:00
   check("журнал без frontmatter: код 0", r2.code === 0, `code=${r2.code}`);
 }
 
+// --- 9а. Неопознанный ключ state.json: молчать о нём дороже всего --------------
+// Ключ `active_task` вместо `active` даёт активную задачу «на бумаге»: шапка не печатается, гейт
+// на коммит не срабатывает, и снаружи это выглядит как «Волна» просто не сопровождает
+{
+  const badKeys = { active_task: "21571", updated: "2026-07-25T12:30" };
+  writeFileSync(join(volnaDir, "state.json"), JSON.stringify(badKeys), "utf8");
+
+  const p = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "тест" });
+  check("чужой ключ state.json: шапка говорит о нём вне задачи",
+    ctx(p).includes("active_task") && ctx(p).includes("неизвестные ключи"), ctx(p) || `code=${p.code}`);
+
+  const s = run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" });
+  check("чужой ключ state.json: начало сессии говорит о нём",
+    ctx(s).includes("active_task"), ctx(s) || `code=${s.code}`);
+
+  const g = run("gate.mjs", {
+    cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git commit -m x" },
+  });
+  const msg = (() => { try { return JSON.parse(g.out)?.systemMessage ?? ""; } catch { return ""; } })();
+  check("чужой ключ state.json: гейт предупреждает, но не блокирует",
+    msg.includes("active_task") && !g.out.includes("deny"), msg || g.out);
+
+  // Заглушенный проект просил тишины, и предупреждение о настройке - такая же подсказка
+  writeFileSync(join(volnaDir, "state.json"), JSON.stringify({ ...badKeys, muted: true }), "utf8");
+  const pm = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "тест" });
+  check("заглушено: шапка о ключах молчит", pm.out === "", pm.out);
+  const gm = run("gate.mjs", {
+    cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git commit -m x" },
+  });
+  check("заглушено: гейт о ключах всё равно говорит - это защита, а не сопровождение",
+    gm.out.includes("active_task"), gm.out);
+
+  // Обратная половина: исправный файл не даёт ни одной новой строки
+  write("implement");
+  const clean = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "тест" });
+  check("исправный state.json: о ключах не сказано ничего",
+    !ctx(clean).includes("неизвестные ключи"), ctx(clean));
+
+  check("список ключей обрезан: шапке нельзя расти без предела",
+    (() => {
+      writeFileSync(join(volnaDir, "state.json"),
+        JSON.stringify({ a1: 1, a2: 2, a3: 3, a4: 4, a5: 5, a6: 6, a7: 7 }), "utf8");
+      const r = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "тест" });
+      return ctx(r).includes("и ещё 2") && !ctx(r).includes("a7");
+    })());
+  write("implement");
+}
+
 // --- 10. Порядок этапов: позиция k/N в шапке ----------------------------------
 {
   check("порядок этапов: capture идёт перед deliver", stagePosition("capture") === 10, `${stagePosition("capture")}`);

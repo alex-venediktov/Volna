@@ -8,10 +8,12 @@
  * Всё остальное - предупреждение в systemMessage, без блокировки: гейт, который срабатывает
  * зря, обходят руками, и тогда он бесполезен.
  *
- * Нет активной задачи, нет .volna/, сопровождение заглушено - гейт молчит.
+ * Нет активной задачи, нет .volna/, сопровождение заглушено - гейт молчит. Исключение одно:
+ * неопознанные ключи state.json - о них предупреждаем без блокировки, потому что из-за них гейт
+ * и не работает.
  */
 import { dirname, resolve, relative } from "node:path";
-import { readHookInput, loadActive, runQuietly, readProfile, hasTracker } from "./lib/volna-state.mjs";
+import { readHookInput, loadActive, findVolnaDir, runQuietly, readProfile, hasTracker, stateKeyWarning } from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
   const input = await readHookInput();
@@ -23,7 +25,13 @@ await runQuietly(async () => {
 
   // muted не отключает гейт: глушится сопровождение, а не защита необратимого
   const active = loadActive(input.cwd, { respectMute: false });
-  if (!active) return;
+  if (!active) {
+    // Коммит - тот самый момент, когда выключенный гейт стоит дорого. Предупреждаем, но не
+    // блокируем: битая настройка не повод запрещать работу, а гейт, срабатывающий зря, обходят
+    const keyWarning = stateKeyWarning(findVolnaDir(input.cwd), { respectMute: false });
+    if (keyWarning) warn(`Волна: ${keyWarning} Гейт на коммит сейчас не работает.`);
+    return;
+  }
 
   // Задача живёт в рабочем каталоге «Волны». Git в стороннем репозитории (сам плагин, чужой
   // проект) к её этапам отношения не имеет, и блокировать его - ложное срабатывание.

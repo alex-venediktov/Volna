@@ -39,6 +39,10 @@ sections:
   project: {code: false}
   process: {code: false}
   volna: {code: false}
+reference_roots:
+  - root: "."
+    prefix: ""
+    drift_window: 40
 limits:
   record_lines: 20
   record_lines_hard: 40
@@ -51,6 +55,13 @@ limits:
 checks:
   exec_enabled: false
 \`\`\`
+
+## Корни сверки
+
+\`reference_roots\` включает сверку локаторов: без блока \`verify\` не проверяет ни одного якоря, а
+\`lint\` при этом выглядит чистым. По умолчанию корень - сам репозиторий, поэтому локатор вида
+\`lib/foo.mjs:12\` сверяется без настройки. Эталон за пределами репозитория добавляется своей
+строкой с \`prefix\`.
 
 ## Единица хранения
 
@@ -133,9 +144,11 @@ export async function run(argv, deps = {}) {
 
   if (command === "index") {
     if (!flags.fix) {
-      log(`план указателей (без --fix ничего не записано):`);
+      log(`план указателей (без --fix ничего не записано): файлов ${plan.files.length}`);
       for (const f of plan.files) log(`  ${f.text.split("\n").length} строк  ${f.rel}`);
-      if (plan.sharded.length) log(`шардированы по этапам: ${plan.sharded.join(", ")}`);
+      // Ось называется настоящая: до правки строка была жёсткой («по этапам») и лгала при
+      // shard_by: [topic]. Решение о раскладке принимает инструмент, значит он и обязан его назвать
+      if (plan.sharded.length) log(`шардированы ${plan.axis}: ${plan.sharded.join(", ")} (ось index.shard_by в SCHEMA.md)`);
       return 0;
     }
     for (const f of plan.files) write(join(root, f.rel), f.text);
@@ -165,7 +178,7 @@ export async function run(argv, deps = {}) {
       }
     };
     for (const section of new Set(records.map((r) => r.section))) sweep(section);
-    log(`указателей записано: ${plan.files.length}${plan.sharded.length ? `, шардированы: ${plan.sharded.join(", ")}` : ""}`);
+    log(`указателей записано: ${plan.files.length}${plan.sharded.length ? `, шардированы ${plan.axis}: ${plan.sharded.join(", ")}` : ""}`);
     if (dead.length) log(`мёртвых шардов удалено: ${dead.length} (${dead.join(", ")})`);
     return 0;
   }
@@ -279,11 +292,16 @@ export async function run(argv, deps = {}) {
   }
 
   if (command === "lint") {
-    const verify = (schema.reference_roots ?? []).length
-      ? (a) => verifyAnchor(a, schema, deps) : null;
+    const rooted = (schema.reference_roots ?? []).length;
+    const verify = rooted ? (a) => verifyAnchor(a, schema, deps) : null;
     const findings = lint({ records, files, schema, indexed: plan.indexed, verify });
     if (flags.json) log(JSON.stringify(findings, null, 2));
     else log(formatFindings(findings, flags.all ? Infinity : Number(flags.limit ?? 40)));
+    // Чистый линт без сверки и чистый линт со сверкой - разные утверждения, а выглядят одинаково:
+    // проверка K016 при пустых корнях не выполняется вовсе, и записи с битым локатором проходят
+    if (!rooted && !flags.json) {
+      log("\nякоря не проверялись: reference_roots не объявлен в SCHEMA.md - K016 выключен");
+    }
     const errors = findings.filter((f) => f.level === ERROR).length;
     return errors ? 1 : (findings.length ? 2 : 0);
   }
@@ -363,10 +381,15 @@ export async function run(argv, deps = {}) {
     log("типы:");
     for (const [k, v] of Object.entries(byType).sort((a, b) => b[1] - a[1])) log(`  ${String(v).padStart(4)}  ${k}`);
     log(`с якорями: ${anchored}, со сверкой: ${verified}`);
+    // «с якорями: 0» читается как «якорей не заводили», а не как «сверка выключена»: без корней
+    // verify не проверяет ни одного локатора, и номера строк живут в записях непроверенными
+    if (!(schema.reference_roots ?? []).length) {
+      log("якоря не сверяются: reference_roots не объявлен в SCHEMA.md (сверка выключена целиком)");
+    }
     const limits = { ...DEFAULTS.limits, ...(schema.limits ?? {}) };
     const big = files.filter((f) => f.lines > limits.file_lines);
     if (big.length) { log(`файлы сверх порога ${limits.file_lines} строк:`); for (const f of big) log(`  ${f.lines}  ${f.rel}`); }
-    if (plan.sharded.length) log(`указатели шардированы: ${plan.sharded.join(", ")}`);
+    if (plan.sharded.length) log(`указатели шардированы ${plan.axis}: ${plan.sharded.join(", ")}`);
     return 0;
   }
 

@@ -17,7 +17,7 @@
 шестом).
 
 **источник:**
-- `lib/wiki-index.mjs:356` — `if (shared >= 5 && shared >= Math.min(token.length, word.length) - 2) return true;`
+- `lib/wiki-index.mjs:364` — `if (shared >= 5 && shared >= Math.min(token.length, word.length) - 2) return true;`
 
 **проверено:** 2026-08-04
 
