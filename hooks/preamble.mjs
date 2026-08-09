@@ -63,10 +63,11 @@ await runQuietly(async () => {
   if (keyWarning) lines.push(`Волна: ${keyWarning}`);
 
   // Точный подъём референса по номеру из промпта (не активная задача, а упомянутая).
-  const mentioned = mentionedTask(input.prompt, active?.task);
+  const volnaDir = findVolnaDir(input.cwd);
+  const mentioned = mentionedTask(input.prompt, active?.task,
+    (id) => Boolean(volnaDir && readJournal(volnaDir, id)));
   if (mentioned) {
-    const volnaDir = findVolnaDir(input.cwd);
-    const journal = volnaDir ? readJournal(volnaDir, mentioned) : null;
+    const journal = readJournal(volnaDir, mentioned);
     if (journal) {
       lines.push(`Про ${mentioned} есть журнал: .volna/journal/TASK-${mentioned}.md`);
       for (const s of summarize(journal, 3)) lines.push(`  ${s}`);
@@ -78,19 +79,25 @@ await runQuietly(async () => {
 });
 
 /**
- * Первый идентификатор задачи в промпте, отличный от активной: номер трекера (4-6 цифр)
- * либо локальный id вида 260730-slug. Локальная форма проверяется первой - иначе от неё
- * осталась бы одна дата, и журнал по ней не нашёлся бы.
+ * Первый идентификатор задачи в промпте, отличный от активной: локальный id вида 260730-slug,
+ * ключ трекера вида RJDB-2228 либо номер из 4-6 цифр. Локальная форма проверяется первой - иначе
+ * от неё осталась бы одна дата, и журнал по ней не нашёлся бы.
+ *
+ * Отбирается первый кандидат, у которого журнал ЕСТЬ: форма ключа совпадает и с обычными словами
+ * через дефис (UTF-8, api-2, сам префикс TASK-), и без проверки они забирали бы ход у настоящего
+ * идентификатора. Проверки нет - берётся первый кандидат, как раньше.
  */
-function mentionedTask(prompt, activeTask) {
+export function mentionedTask(prompt, activeTask, hasJournal = null) {
   if (!prompt) return null;
   const text = String(prompt);
   const matches = [
     ...(text.match(/\b\d{6}-[a-z0-9]+(?:-[a-z0-9]+)*\b/gi) ?? []),
+    ...(text.match(/\b[A-Z][A-Z0-9_]*-\d+\b/g) ?? []),
     ...(text.match(/\b\d{4,6}\b/g) ?? []),
-  ];
+  ].filter((n) => n !== activeTask);
   if (!matches.length) return null;
-  return matches.find((n) => n !== activeTask) ?? null;
+  if (typeof hasJournal !== "function") return matches[0];
+  return matches.find((n) => hasJournal(n)) ?? null;
 }
 
 /** Три строки резюме журнала: заголовок, этап, «сделано» из секции «Состояние». */

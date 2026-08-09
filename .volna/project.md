@@ -27,6 +27,7 @@
 |---|---|
 | тесты hooks | `node hooks/test-hooks.mjs .` |
 | тесты CLI над трекером | `node bin/test-volna-tfs.mjs` |
+| тесты CLI над Jira | `node bin/test-volna-jira.mjs` |
 | замер стоимости компонентов | `claude plugin details volna@volna` |
 
 Сборки нет: плагин — это markdown и Node без зависимостей.
