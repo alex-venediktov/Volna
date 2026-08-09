@@ -20,7 +20,7 @@
  *   volna-jira estimate <ключ> --original N   оценка и остаток работ ([--remaining M])
  *
  * Многострочные поля (описание, комментарий) принимают MARKDOWN: wiki-разметка Jira собирается
- * сама. Идентификатор задачи - строковый ключ вида RJDB-2228, а не число.
+ * сама. Идентификатор задачи - строковый ключ вида ABC-2228, а не число.
  *
  * Флаги: --dry-run (напечатать намерение и не менять ничего), --json (сырой ответ вместо markdown).
  */
@@ -111,7 +111,15 @@ export async function run(argv, deps = {}) {
         return 1;
     }
   } catch (e) {
-    err(String(e?.message ?? e));
+    const message = String(e?.message ?? e);
+    err(message);
+    // «задачи не существует» и «проекта не существует» сервер отвечает и тогда, когда дело в доступе
+    if (/HTTP 404/.test(message)) {
+      try {
+        const denied = await client.accessProblem();
+        if (denied) err(`Дело может быть не в ключе: доступа к трекеру нет - ${denied}.`);
+      } catch { /* проверка доступа не удалась - остаётся исходное сообщение */ }
+    }
     return 1;
   }
 }
@@ -145,7 +153,7 @@ async function cmdWhoami(client, log, flags) {
 async function cmdGet(client, args, flags, log, err) {
   const key = args[0];
   if (!key) {
-    err("Нужен ключ задачи: volna-jira get RJDB-2228");
+    err("Нужен ключ задачи: volna-jira get ABC-2228");
     return 1;
   }
   const issue = await client.getIssue(key);
@@ -170,6 +178,17 @@ async function cmdQuery(client, args, flags, env, log, err) {
     return 0;
   }
   log(`JQL: ${jql}`);
+  // пустая выборка сама по себе фактом не является: без доступа сервер отвечает тем же пустым списком
+  if (!res.issues.length) {
+    const denied = await client.accessProblem();
+    if (denied) {
+      err(`Доступа к трекеру нет: ${denied}. Выборка пуста не потому, что задач нет:` +
+        " поиск отвечает пустым списком и на запрос без доступа.");
+      return 1;
+    }
+    log("найдено: 0 (доступ к трекеру есть, задач по запросу действительно нет)");
+    return 0;
+  }
   log(`найдено: ${res.issues.length}${res.truncated ? " (ответ обрезан пределом страниц: уточни запрос или подними --pages)" : ""}`);
   for (const i of res.issues) {
     const f = i.fields ?? {};
@@ -185,7 +204,7 @@ async function cmdQuery(client, args, flags, env, log, err) {
 async function cmdStates(client, args, flags, log, err) {
   const target = args[0];
   if (!target) {
-    err("Нужен ключ задачи или имя типа: volna-jira states RJDB-2228 | volna-jira states Задача");
+    err("Нужен ключ задачи или имя типа: volna-jira states ABC-2228 | volna-jira states Задача");
     return 1;
   }
   if (ISSUE_KEY.test(target)) {
@@ -224,7 +243,7 @@ async function cmdComment(client, args, flags, log, err, readFile) {
   const key = args[0];
   const text = flags["body-file"] ? readFile(flags["body-file"]) : args.slice(1).join(" ");
   if (!key || !String(text).trim()) {
-    err("Нужен ключ и текст: volna-jira comment RJDB-2228 \"текст\" (или --body-file файл)");
+    err("Нужен ключ и текст: volna-jira comment ABC-2228 \"текст\" (или --body-file файл)");
     return 1;
   }
   const res = await client.addComment(key, text);
@@ -237,7 +256,7 @@ async function cmdDescribe(client, args, flags, log, err, readFile) {
   const key = args[0];
   const text = flags["body-file"] ? readFile(flags["body-file"]) : args.slice(1).join(" ");
   if (!key || !String(text).trim()) {
-    err("Нужен ключ и текст: volna-jira describe RJDB-2228 --body-file итог.md [--replace]");
+    err("Нужен ключ и текст: volna-jira describe ABC-2228 --body-file итог.md [--replace]");
     return 1;
   }
   await client.setDescription(key, text, { replace: Boolean(flags.replace) });
@@ -250,7 +269,7 @@ async function cmdState(client, args, log, err) {
   const [key, ...rest] = args;
   const wanted = rest.join(" ").trim();
   if (!key || !wanted) {
-    err("Нужен ключ и статус: volna-jira state RJDB-2228 \"В работе\"");
+    err("Нужен ключ и статус: volna-jira state ABC-2228 \"В работе\"");
     return 1;
   }
   const hit = await client.transitionTo(key, wanted);
@@ -262,7 +281,7 @@ async function cmdState(client, args, log, err) {
 async function cmdTime(client, args, flags, log, err) {
   const [key, hours] = args;
   if (!key || !hours) {
-    err("Нужен ключ и часы: volna-jira time RJDB-2228 1.5 [--comment \"что делали\"]");
+    err("Нужен ключ и часы: volna-jira time ABC-2228 1.5 [--comment \"что делали\"]");
     return 1;
   }
   await client.addWorklog(key, String(hours).replace(",", "."), {
@@ -277,7 +296,7 @@ async function cmdTime(client, args, flags, log, err) {
 async function cmdEstimate(client, args, flags, log, err) {
   const key = args[0];
   if (!key || (flags.original === undefined && flags.remaining === undefined)) {
-    err("Нужен ключ и хотя бы одно значение: volna-jira estimate RJDB-2228 --original 8 [--remaining 4]");
+    err("Нужен ключ и хотя бы одно значение: volna-jira estimate ABC-2228 --original 8 [--remaining 4]");
     return 1;
   }
   await client.setEstimate(key, {

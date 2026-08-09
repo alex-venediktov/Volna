@@ -4,6 +4,6 @@
 
 | Куда | Вид | Предмет | Тип | Этапы | Описание |
 |---|---|---|---|---|---|
-| [process](process/INDEX.md) | узел · 5 | выбор версии внешнего API, детекторы аномалий кода, посылка партии разведки | ограничение ×2, побочный эффект, порядок | analyze, spec, plan, implement | - |
+| [process](process/INDEX.md) | узел · 6 | выбор версии внешнего API, детекторы аномалий кода, отрицательный ответ на чтение | ограничение ×3, побочный эффект, порядок | analyze, spec, plan, implement, unit-tests | - |
 | [project](project/INDEX.md) | узел · 11 | замер always-on и on-invoke, команды и инструкции этапов, места, где закреплён порядок этапов | направление ×8, ограничение ×2, приём | plan, implement, advocate, unit-tests, capture, deliver, intake | - |
 | [volna](volna/INDEX.md) | узел · 29 | профиль проекта, автопроход, длинная задача, активная задача и гейт | порядок ×8, ограничение ×6, договорённость ×5 | analyze, spec, plan, implement, advocate, unit-tests, visual, capture, deliver, close, cleanup, intake | - |

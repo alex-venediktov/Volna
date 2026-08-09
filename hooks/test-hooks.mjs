@@ -196,8 +196,8 @@ stages_done: [intake, analyze]
     c3.includes("порт закрыт") && !c3.includes("отменённая гипотеза"), c3);
 
   // Идентификатор задачи трекера бывает строковым ключом (Jira), а не числом.
-  writeFileSync(join(volnaDir, "journal", "TASK-RJDB-2228.md"), `---
-task: RJDB-2228
+  writeFileSync(join(volnaDir, "journal", "TASK-ABC-2228.md"), `---
+task: ABC-2228
 title: "Задача с ключом"
 type: task
 stage: plan
@@ -209,14 +209,14 @@ stages_done: [intake]
 **сделано:** карточка прочитана.
 `, "utf8");
   const r4 = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit",
-    prompt: "а что по RJDB-2228?" });
+    prompt: "а что по ABC-2228?" });
   check("ключ задачи в промпте поднимает журнал так же, как номер",
-    ctx(r4).includes("TASK-RJDB-2228.md"), ctx(r4));
+    ctx(r4).includes("TASK-ABC-2228.md"), ctx(r4));
 
   const r5 = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit",
-    prompt: "проверь UTF-8 в файле и заодно RJDB-2228" });
+    prompt: "проверь UTF-8 в файле и заодно ABC-2228" });
   check("слово через дефис не перехватывает ход у настоящего ключа",
-    ctx(r5).includes("TASK-RJDB-2228.md"), ctx(r5));
+    ctx(r5).includes("TASK-ABC-2228.md"), ctx(r5));
 }
 
 // --- 5. muted глушит шапку, но не гейт -----------------------------------------

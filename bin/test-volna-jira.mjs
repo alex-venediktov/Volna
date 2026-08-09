@@ -25,6 +25,10 @@ function fakeClient(issue = {}, extra = {}) {
       calls.push(["verifyAccess"]);
       return extra.access ?? { ok: true, status: 200, user: { displayName: "Иван Петров", emailAddress: "i@p" } };
     },
+    async accessProblem() {
+      calls.push(["accessProblem"]);
+      return extra.denied ?? null;
+    },
     async currentUser() {
       calls.push(["currentUser"]);
       return { displayName: "Иван Петров", accountId: "acc-1", emailAddress: "i@p" };
@@ -60,13 +64,13 @@ async function runCli(argv, deps = {}) {
 }
 
 const ISSUE = {
-  key: "RJDB-2228",
+  key: "ABC-2228",
   fields: {
     summary: "Заголовок задачи",
     issuetype: { name: "Баг" },
     status: { name: "For testing", statusCategory: { name: "Готово" } },
     assignee: { displayName: "Пётр Иванов" },
-    parent: { key: "RJDV2-4475", fields: { summary: "Эпик" } },
+    parent: { key: "XYZ-4475", fields: { summary: "Эпик" } },
     labels: ["автотесты"],
     description: "h2. Итог\n\n* пункт",
     timetracking: { originalEstimate: "1d", timeSpent: "1d", remainingEstimate: "0m" },
@@ -76,22 +80,22 @@ const ISSUE = {
 // --- 1. Разбор аргументов ---------------------------------------------------
 
 {
-  const { command, args, flags } = parseArgs(["comment", "RJDB-1", "текст", "--body-file", "f.md", "--dry-run"]);
+  const { command, args, flags } = parseArgs(["comment", "ABC-1", "текст", "--body-file", "f.md", "--dry-run"]);
   check("разбор аргументов: команда и позиционные отделяются от признаков",
-    command === "comment" && args[0] === "RJDB-1" && flags["body-file"] === "f.md" && flags["dry-run"] === true,
+    command === "comment" && args[0] === "ABC-1" && flags["body-file"] === "f.md" && flags["dry-run"] === true,
     JSON.stringify({ command, args, flags }));
 }
 
 check("ключ задачи опознаётся по форме, а число - нет",
-  ISSUE_KEY.test("RJDB-2228") && ISSUE_KEY.test("A1-7") && !ISSUE_KEY.test("21571") && !ISSUE_KEY.test("Задача"));
+  ISSUE_KEY.test("ABC-2228") && ISSUE_KEY.test("A1-7") && !ISSUE_KEY.test("21571") && !ISSUE_KEY.test("Задача"));
 
 // --- 2. Чтение --------------------------------------------------------------
 
 {
   const client = fakeClient(ISSUE, { comments: [{ author: { displayName: "Автор" }, created: "2026-07-01T10:00", body: "*важно*" }] });
-  const { code, out } = await runCli(["get", "RJDB-2228"], { client });
+  const { code, out } = await runCli(["get", "ABC-2228"], { client });
   check("get печатает карточку задачи с видом для флоу", code === 0 && out.includes("вид для флоу: bug"), out.slice(0, 200));
-  check("get называет родителя из чужого проекта", out.includes("RJDV2-4475"), out.slice(0, 200));
+  check("get называет родителя из чужого проекта", out.includes("XYZ-4475"), out.slice(0, 200));
   check("get переводит wiki-разметку описания в markdown", out.includes("## Итог") && out.includes("- пункт"), out);
   check("get показывает обсуждение", out.includes("Автор") && out.includes("**важно**"), out);
 }
@@ -109,10 +113,10 @@ check("ключ задачи опознаётся по форме, а число
 }
 
 {
-  const client = fakeClient({}, { search: { issues: [{ key: "RJDB-1", fields: { summary: "с", issuetype: { name: "Задача" }, status: { name: "В работе" } } }], pages: 2, truncated: true } });
-  const { out } = await runCli(["query", "project", "=", "RJDB"], { client, env: {} });
+  const client = fakeClient({}, { search: { issues: [{ key: "ABC-1", fields: { summary: "с", issuetype: { name: "Задача" }, status: { name: "В работе" } } }], pages: 2, truncated: true } });
+  const { out } = await runCli(["query", "project", "=", "ABC"], { client, env: {} });
   check("query называет обрезанный по пределу страниц ответ", out.includes("обрезан"), out);
-  check("query печатает строку на задачу", out.includes("RJDB-1"), out);
+  check("query печатает строку на задачу", out.includes("ABC-1"), out);
 }
 
 {
@@ -122,9 +126,40 @@ check("ключ задачи опознаётся по форме, а число
     client.calls[0][1] === "assignee = currentUser()", JSON.stringify(client.calls[0]));
 }
 
+// пустая выборка неотличима от отказа: сервер отвечает пустым списком и на запрос без доступа
+{
+  const client = fakeClient({}, { denied: "токен истёк (401)" });
+  const { code, out, err } = await runCli(["query", "project = ABC"], { client, env: {} });
+  check("пустая выборка при отсутствии доступа подаётся как отказ, а не как «задач нет»",
+    code === 1 && err.includes("Доступа к трекеру нет") && !out.includes("найдено: 0"), `${code} | ${out} | ${err}`);
+}
+
+{
+  const client = fakeClient({}, {});
+  const { code, out } = await runCli(["query", "project = ABC"], { client, env: {} });
+  check("пустая выборка при живом доступе называет доступ проверенным",
+    code === 0 && out.includes("доступ к трекеру есть"), `${code} | ${out}`);
+}
+
+{
+  const client = fakeClient({}, { denied: "прав не хватает (403)" });
+  client.getIssue = async () => { throw new Error("Jira GET .../issue/A-1 -> HTTP 404: Issue does not exist"); };
+  const { code, err } = await runCli(["get", "A-1"], { client });
+  check("«задачи не существует» дополняется проверкой доступа: 404 приходит и без прав",
+    code === 1 && err.includes("Дело может быть не в ключе"), err);
+}
+
+{
+  const client = fakeClient({}, { denied: "токен истёк (401)" });
+  client.getIssue = async () => { throw new Error("Jira PUT .../issue/A-1 -> HTTP 400: bad request"); };
+  const { err } = await runCli(["get", "A-1"], { client });
+  check("на отказ, не связанный с ненайденным, доступ не перепроверяется",
+    !err.includes("Дело может быть не в ключе"), err);
+}
+
 {
   const client = fakeClient({}, { transitions: [{ id: "1", name: "В тестирование", to: { name: "Тестирование" } }] });
-  const { out } = await runCli(["states", "RJDB-2228"], { client });
+  const { out } = await runCli(["states", "ABC-2228"], { client });
   check("states по ключу печатает переходы, а не статусы",
     out.includes("В тестирование -> статус Тестирование"), out);
 }
@@ -139,21 +174,21 @@ check("ключ задачи опознаётся по форме, а число
 
 {
   const client = fakeClient();
-  const { code } = await runCli(["comment", "RJDB-1", "текст с **жирным**"], { client });
+  const { code } = await runCli(["comment", "ABC-1", "текст с **жирным**"], { client });
   check("comment отправляет запись сразу, без флага подтверждения",
     code === 0 && client.calls.some((c) => c[0] === "addComment"), JSON.stringify(client.calls));
 }
 
 {
   const client = fakeClient();
-  const { code, err } = await runCli(["comment", "RJDB-1", "текст", "--dry-run"], { client });
+  const { code, err } = await runCli(["comment", "ABC-1", "текст", "--dry-run"], { client });
   check("dry-run печатает намерение и не зовёт клиент",
     code === 0 && !client.calls.length && err.includes("ничего не отправлено"), err);
 }
 
 {
   const client = fakeClient();
-  await runCli(["describe", "RJDB-1", "абзац"], { client });
+  await runCli(["describe", "ABC-1", "абзац"], { client });
   const call = client.calls.find((c) => c[0] === "setDescription");
   check("describe по умолчанию дополняет описание, а не заменяет", call && call[3].replace === false,
     JSON.stringify(call));
@@ -161,33 +196,33 @@ check("ключ задачи опознаётся по форме, а число
 
 {
   const client = fakeClient();
-  await runCli(["describe", "RJDB-1", "абзац", "--replace"], { client });
+  await runCli(["describe", "ABC-1", "абзац", "--replace"], { client });
   const call = client.calls.find((c) => c[0] === "setDescription");
   check("describe с --replace заменяет описание целиком", call && call[3].replace === true, JSON.stringify(call));
 }
 
 {
   const client = fakeClient();
-  const { out } = await runCli(["state", "RJDB-1", "В работе"], { client });
+  const { out } = await runCli(["state", "ABC-1", "В работе"], { client });
   check("state называет выполненный переход и целевой статус",
     out.includes("переход") && out.includes("В работе"), out);
 }
 
 {
   const client = fakeClient();
-  await runCli(["time", "RJDB-1", "1,5", "--comment", "правка"], { client });
+  await runCli(["time", "ABC-1", "1,5", "--comment", "правка"], { client });
   const call = client.calls.find((c) => c[0] === "addWorklog");
   check("time принимает часы с запятой как десятичную дробь", call && call[2] === "1.5", JSON.stringify(call));
 }
 
 {
   const client = fakeClient();
-  const { code, err } = await runCli(["estimate", "RJDB-1"], { client });
+  const { code, err } = await runCli(["estimate", "ABC-1"], { client });
   check("estimate без значений отказывается работать", code === 1 && err.includes("хотя бы одно"), err);
 }
 
 check("намерение dry-run называет ключ и действие",
-  describeIntent("state", ["RJDB-1", "В", "работе"], {}).includes("RJDB-1"));
+  describeIntent("state", ["ABC-1", "В", "работе"], {}).includes("ABC-1"));
 
 // --- 4. Разметка ------------------------------------------------------------
 
@@ -306,6 +341,32 @@ check("подсказка объясняет отказ по правам", erro
   await client.getIssue("A-1");
   check("при 429 повтор идёт после паузы, названной сервером",
     calls === 2 && waited[0] === 2000, JSON.stringify({ calls, waited }));
+}
+
+{
+  const client = new JiraClient({
+    baseUrl: "https://e.atlassian.net", email: "i@p", token: "t",
+    fetchFn: () => Promise.resolve({ ok: false, status: 401, text: async () => "unauthorized" }),
+  });
+  const problem = await client.accessProblem();
+  check("отказ в доступе объясняется словами, а не кодом", /401/.test(problem) && /токен/.test(problem), problem);
+}
+
+{
+  const client = new JiraClient({
+    baseUrl: "https://e.atlassian.net", email: "i@p", token: "t",
+    fetchFn: () => Promise.resolve({ ok: true, status: 200, text: async () => "{}" }),
+  });
+  check("при живом доступе проверка молчит", (await client.accessProblem()) === null);
+}
+
+{
+  const client = new JiraClient({
+    baseUrl: "https://e.atlassian.net", email: "i@p", token: "t",
+    fetchFn: () => Promise.reject(new Error("network down")),
+  });
+  const problem = await client.accessProblem();
+  check("недоступность сети не выдаётся за отказ в правах", /недоступен/.test(problem), problem);
 }
 
 {
