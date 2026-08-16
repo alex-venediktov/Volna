@@ -7,7 +7,7 @@
  * добавляется ссылка и три строки резюме. Только точное совпадение по номеру - никакого
  * поиска по смыслу: он стоил бы токенов на каждом сообщении.
  */
-import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, STAGES }
+import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, partOf, STAGES }
   from "./lib/volna-state.mjs";
 
 const MAX_LINES = 20;
@@ -24,6 +24,9 @@ await runQuietly(async () => {
     const head = [`Волна: задача ${task}`];
     if (fm.title) head.push(`«${truncate(String(fm.title), 60)}»`);
     head.push(`· этап ${stage}${pos ? ` ${pos}/${STAGES.length}` : ""}`);
+    // Задача из частей: без этой строки частично выполненная неотличима от просто незакрытой.
+    const part = partOf(fm);
+    if (part) head.push(`· часть ${part}`);
     if (fm.branch) head.push(`· ${fm.branch}`);
     // Время машины: метки журнала ставит модель, а текущего времени она не знает.
     head.push(`· сейчас ${localStamp()}`);

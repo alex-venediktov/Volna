@@ -337,6 +337,21 @@ export const STAGES = [
   "unit-tests", "visual", "capture", "deliver", "close", "cleanup",
 ];
 
+/**
+ * Строка «k из N» для задачи, разбитой на части, либо null. Поля `part` и `parts` заполняет
+ * `spec`, когда работа не помещается в один заход. Без этой строки частично выполненная задача
+ * неотличима от просто незакрытой: этап у неё бывает любой, вплоть до cleanup.
+ *
+ * Одно поле без другого - не ошибка: `part` без `parts` значит, что число частей ещё не
+ * определено, и печатается один номер. `parts` без `part` не печатается вовсе - номера части нет.
+ */
+export function partOf(fm) {
+  const part = String(fm?.part ?? "").trim();
+  const parts = String(fm?.parts ?? "").trim();
+  if (!/^\d+$/.test(part)) return null;
+  return /^\d+$/.test(parts) ? `${part} из ${parts}` : part;
+}
+
 /** Позиция этапа в флоу, 1-based; 0 - этап неизвестен. */
 export function stagePosition(stage) {
   const i = STAGES.indexOf(String(stage || "").trim());

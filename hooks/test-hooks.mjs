@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, existsS
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { readProfile, hasTracker, isPlaceholder, parseFrontmatter, STAGES, stagePosition }
+import { readProfile, hasTracker, isPlaceholder, parseFrontmatter, partOf, STAGES, stagePosition }
   from "./lib/volna-state.mjs";
 
 const volnaRoot = process.argv[2] || process.cwd();
@@ -636,6 +636,52 @@ updated: 2026-07-30T11:00
       const r = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "тест" });
       return ctx(r).includes("и ещё 2") && !ctx(r).includes("a7");
     })());
+  write("implement");
+}
+
+// --- 9b. Задача из частей: «часть k из N» в шапке и в начале сессии -----------
+{
+  check("части нет: строка не печатается", partOf({}) === null, String(partOf({})));
+  check("часть без общего числа: печатается один номер", partOf({ part: "2" }) === "2", partOf({ part: "2" }));
+  check("часть и число частей: «k из N»", partOf({ part: "2", parts: "5" }) === "2 из 5",
+    partOf({ part: "2", parts: "5" }));
+  check("нечисловая часть игнорируется", partOf({ part: "вторая", parts: "5" }) === null,
+    String(partOf({ part: "вторая", parts: "5" })));
+
+  writeFileSync(join(volnaDir, "journal", "TASK-21571.md"), `---
+task: 21571
+title: "Клапан не рисуется при зеркале"
+type: task
+mode: local
+part: 2
+parts: 5
+stage: implement
+stages_done: [intake, analyze, spec, plan]
+open: []
+---
+
+## Состояние · 2026-07-25 12:30
+
+**цель:** довести работу частями.
+**части:**
+1. первая - сделано (2026-07-25, 3ч)
+2. вторая - в работе
+**сделано:** часть 1 закрыта.
+**следующий шаг:** доделать часть 2.
+`, "utf8");
+  writeFileSync(join(volnaDir, "state.json"),
+    JSON.stringify({ active: "21571", updated: "2026-07-25T12:30", muted: false }), "utf8");
+  const p = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" });
+  check("шапка называет часть: частично сделанная задача видна сразу",
+    ctx(p).includes("часть 2 из 5"), ctx(p));
+  const s = run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" });
+  check("начало сессии называет часть", ctx(s).includes("часть 2 из 5"), ctx(s));
+
+  // Гейт про части ничего не знает и знать не должен: он смотрит stage и секции лога.
+  const g = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git commit -m \"21571 часть 2\"" } });
+  check("поля части не мешают гейту требовать запись этапа",
+    decision(g).permissionDecision === "deny", g.out);
   write("implement");
 }
 

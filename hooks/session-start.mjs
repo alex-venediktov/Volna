@@ -5,7 +5,7 @@
  * Единственное, о чём говорим вне задачи: неопознанные ключи state.json - из-за них задачи и
  * «нет», так что молчание здесь было бы последствием дефекта, а не его отсутствием.
  */
-import { readHookInput, loadActive, findVolnaDir, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, truncate, localStamp, STAGES }
+import { readHookInput, loadActive, findVolnaDir, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, truncate, localStamp, partOf, STAGES }
   from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
@@ -25,6 +25,8 @@ await runQuietly(async () => {
     `Волна: активна задача ${task}${fm.title ? ` «${fm.title}»` : ""}` +
       `${fm.type ? ` (${fm.type})` : ""}`,
     `Этап: ${stage}${pos ? ` · ${pos}/${STAGES.length}` : ""}` +
+      // Часть говорит то, чего не говорит этап: у задачи есть незакрытый остаток.
+      `${partOf(fm) ? ` · часть ${partOf(fm)}` : ""}` +
       `${fm.branch ? ` · ветка ${fm.branch}` : ""}`,
     // Время машины для меток журнала: локальное, не UTC.
     `Сейчас: ${localStamp()}`,
