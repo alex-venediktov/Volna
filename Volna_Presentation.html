@@ -122,11 +122,68 @@ td.num,th.num{text-align:right; font-variant-numeric:tabular-nums; white-space:n
 
 footer{color:var(--mut); font-size:12.5px; text-align:center; padding:8px 0 0}
 
+@page{size:A4 landscape; margin:10mm 12mm}
 @media print{
-  body{background:#fff}
+  /* сохраняет фоны и тени при печати - иначе пропадут полосы диаграмм, метки этапов и легенда (print-color-adjust) */
+  *{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+  /* печать всегда светлая - тёмная тема системы иначе уезжает в PDF (prefers-color-scheme) */
+  :root{
+    --page:#f6f6f3; --card:#ffffff; --ink:#0b0b0b; --ink2:#3f3e3c; --mut:#6b6a66;
+    --line:#cfcec6; --axis:#b3b2a8; --accent:#1f5fae; --accent-soft:#cde2fb;
+    --accent-mid:#86b6ef;
+  }
+  body{background:#fff; font-size:12px}
   nav.toc{display:none}
-  section.slide{break-after:page; border:0; padding:0 0 12px; margin:0 0 20px}
   .deck{max-width:none; padding:0}
+  /* колонки задаются явно - media query по ширине схлопывает сетку на печатном листе */
+  .cols{grid-template-columns:1fr 1fr}
+  .cols3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  /* один слайд - одна страница: сверху полоса под номер, разрыв после каждой секции */
+  section.slide{
+    break-after:page; break-inside:avoid; border:0; border-radius:0;
+    background:#fff; padding:16px 0 0; margin:0;
+  }
+  section.slide:last-of-type{break-after:auto}
+  section.slide::after{top:0; right:0; font-size:11px}
+  .slide h1{font-size:25px}
+  .slide h2{font-size:20px}
+  .slide h3{margin:12px 0 5px; font-size:13.5px}
+  .lead{font-size:12.5px; margin:0 0 10px}
+  p{margin:0 0 9px}
+  ul,ol{margin:0 0 9px}
+  li{margin:0 0 4px}
+  table{font-size:12px}
+  th,td{padding:5px 8px}
+  .tiles{gap:9px; margin:0 0 12px}
+  .tile{padding:10px 12px}
+  .tile .v{font-size:22px}
+  .stages{gap:7px}
+  .stage{padding:7px 9px}
+  .case{padding:11px 13px}
+  .kv{font-size:13px}
+  .note{font-size:12px; margin:9px 0 0}
+  pre{font-size:12px; padding:10px 12px}
+  code{font-size:12.5px}
+
+  /* фоны при печати не выводятся - заливка рисуется границей, а инлайновый i делается блоком */
+  .bar-fill{display:block; height:100%; background:none; border-top:13px solid #1f5fae}
+  .bar-fill.soft{border-top-color:#86b6ef}
+  .bar-fill.mut{border-top-color:#b3b2a8}
+  /* то же для квадратов легенды: цвет задан инлайновым фоном и печатью теряется */
+  .legend span:nth-child(1) .swatch{border:7px solid #1f5fae}
+  .legend span:nth-child(2) .swatch{border:7px solid #86b6ef}
+  .legend span:nth-child(3) .swatch{border:7px solid #b3b2a8}
+  /* уровень этапа помечен тенью, а тень не печатается - метка переносится на границу */
+  .stage{box-shadow:none}
+  .stage.req{border-left:3px solid #1f5fae}
+  .stage.exp{border-left:3px solid #86b6ef}
+  .stage.opt{border-left:3px solid #b3b2a8}
+
+  /* два самых плотных слайда иначе не влезают в страницу: автопроход и большой пример */
+  #s5{font-size:11.5px}
+  #s12 .kv{font-size:11.5px}
+  #s12 .kv div{padding:3px 0}
+  #s12 .kv b{flex:0 0 130px}
 }
 </style>
 </head>

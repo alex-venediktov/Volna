@@ -18,7 +18,7 @@
 
 **источник:**
 - `.gitignore:10` — `.volna/journal/`
-- `skills/volna-flow/stages/cleanup.md:51` — `Журнал остаётся на месте — он и есть архив.`
+- `skills/volna-flow/stages/cleanup.md:53` — `Журнал остаётся на месте — он и есть архив.`
 
 **проверено:** 2026-08-16
 
