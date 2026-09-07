@@ -19,7 +19,7 @@
 вику с блоком. Вика, заведённая раньше, блока не имеет.
 
 **источник:**
-- `bin/volna-wiki.mjs:295` — `const rooted = (schema.reference_roots ?? []).length;`
+- `bin/volna-wiki.mjs:305` — `const rooted = (schema.reference_roots ?? []).length;`
 
 **проверено:** 2026-08-04
 

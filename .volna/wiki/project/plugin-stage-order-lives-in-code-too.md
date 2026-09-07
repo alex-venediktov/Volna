@@ -13,7 +13,7 @@
 показывать прежнюю последовательность после переноса этапа.
 
 **источник:**
-- `hooks/lib/volna-state.mjs:300` - `export const STAGES = [`
+- `hooks/lib/volna-state.mjs:338` - `export const STAGES = [`
 - `lib/wiki-index.mjs:138` - `const order = schema.stages ?? DEFAULTS.stages;`
 
 **связи:** [[rules-rule-on-the-path]], [[rules-command-text-outweighs-stage-file]]

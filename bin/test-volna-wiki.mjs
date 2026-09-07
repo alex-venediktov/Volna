@@ -6,7 +6,7 @@
  * Запуск: node bin/test-volna-wiki.mjs
  */
 import { run, parseArgs, findRoot } from "./volna-wiki.mjs";
-import { parseYamlSubset, loadSchema, slug, field, parseAnchors, readRecords, verifyAnchor, decodeSource, isIndexFile, nodeOf, DEFAULTS } from "../lib/wiki.mjs";
+import { parseYamlSubset, loadSchema, slug, field, parseAnchors, unparsedLocators, readRecords, verifyAnchor, decodeSource, isIndexFile, nodeOf, DEFAULTS } from "../lib/wiki.mjs";
 import { lint } from "../lib/wiki-lint.mjs";
 import { planIndexes, planRoute, planPlacement, axisName } from "../lib/wiki-index.mjs";
 import { parseLegacyIndex, planFlatten, planMigration, sectionForZone } from "../lib/wiki-migrate.mjs";
@@ -106,6 +106,23 @@ check("соглашения: отсутствие файла не ошибка",
 check("поле обрывается на разделителе", field("**тип:** ограничение · **предмет:** масштаб", "тип") === "ограничение",
   field("**тип:** ограничение · **предмет:** масштаб", "тип"));
 check("якорь: путь, строка, цитата", parseAnchors("- `Ref/Unit.pas:3` — `MLeftView:=KompDicke/50;`")[0].line === 3);
+// Разбор локатора не должен зависеть от пунктуации: конвенция проектов требует ASCII-дефиса,
+// а прежний разбор - длинного тире, и локатор молча выпадал из сверки.
+const dash = "—";
+check("якорь через ASCII-дефис разобран", parseAnchors("- `Ref/Unit.pas:3` - `MLeftView:=KompDicke/50;`")[0]?.line === 3,
+  JSON.stringify(parseAnchors("- `Ref/Unit.pas:3` - `MLeftView:=KompDicke/50;`")));
+check("цитата в кавычках сохраняет номер строки", parseAnchors(`- \`crates/pa-types/src/id.rs:78\` ${dash} «pub fn prefix(self)»`)[0]?.line === 78,
+  JSON.stringify(parseAnchors(`- \`crates/pa-types/src/id.rs:78\` ${dash} «pub fn prefix(self)»`)));
+check("вложенные кавычки не обрывают цитату", parseAnchors(`- \`docs/spec.md:2730\` - «Обещания «успеть» не даётся»`)[0]?.quote?.includes("«успеть»"),
+  JSON.stringify(parseAnchors(`- \`docs/spec.md:2730\` - «бла»`)));
+check("локатор без цитаты не считается якорем", parseAnchors("- `Ref/Unit.pas:3` без цитаты").length === 0);
+check("пояснение после цитаты в якорь не входит", parseAnchors("- `.volna/project.md:39` - `git add -A` перед коммитом")[0]?.quote === "git add -A",
+  JSON.stringify(parseAnchors("- `.volna/project.md:39` - `git add -A` перед коммитом")));
+check("строка, похожая на локатор, но неразобранная - названа", unparsedLocators("- `Ref/Unit.pas:3` без цитаты").length === 1,
+  JSON.stringify(unparsedLocators("- `Ref/Unit.pas:3` без цитаты")));
+check("разобранный локатор в неразобранные не попадает", unparsedLocators("- `Ref/Unit.pas:3` - `x:=1;`").length === 0);
+check("проза с обратными кавычками за локатор не принимается", unparsedLocators("- `mode: local` включает локальный режим").length === 0);
+
 check("слаг без пунктуации", slug("Масштаб ограничен: компонент не шире 50 точек") === "масштаб-ограничен-компонент-не-шире-50-точек", slug("Масштаб ограничен: компонент не шире 50 точек"));
 
 // --- разбор записей: секции внутри файла
@@ -284,6 +301,15 @@ const broken = lint({
 check("битая связь найдена", broken.some((f) => f.code === "K003"));
 const noType = { ...records[1], type: "выдуманный", has: records[1].has };
 check("тип вне списка найден", lint({ records: [noType], files, schema }).some((f) => f.code === "K007"));
+// Неразобранный локатор выглядит как проверенный источник: линт обязан назвать его, иначе дрейф
+// якоря копится молча (наблюдалось: 108 локаторов, ни одного в сверке).
+const unparsedRec = { ...records[1], body: `${records[1].body}
+**источник:**
+- \`Ref/Unit.pas:3\` цитата без кавычек
+`, has: records[1].has };
+check("неразобранный локатор найден линтом", lint({ records: [unparsedRec], files, schema }).some((f) => f.code === "K023"),
+  lint({ records: [unparsedRec], files, schema }).map((f) => f.code).join(","));
+check("линт молчит про разобранные локаторы", !lint({ records, files, schema, indexed: plan.indexed }).some((f) => f.code === "K023"));
 
 // --- CLI: без --fix ничего не пишется
 const d1 = fakeDeps();
@@ -300,6 +326,21 @@ const d4 = fakeDeps();
 const codeLint = await run(["lint", "--root", "/w/wiki"], d4);
 check("lint на чистом корпусе возвращает ноль", codeLint === 0, String(codeLint));
 check("неизвестная команда - код 3", await run(["чепуха", "--root", "/w/wiki"], fakeDeps()) === 3);
+
+// Неразобранный локатор в выводе verify: молчание читается как «все якоря сошлись»
+const dUnparsed = fakeDeps();
+dUnparsed.readFile = (path) => (String(path).endsWith("scale.md")
+  ? REC.replace("- `Ref/Unit.pas:5` — `razriv:=8;`", "- `Ref/Unit.pas:5` цитата без кавычек")
+  : fakeDeps().readFile(path));
+const unparsedOut = [];
+dUnparsed.log = (line) => unparsedOut.push(String(line));
+await run(["verify", "--root", "/w/wiki"], dUnparsed);
+check("verify называет неразобранный локатор", unparsedOut.join(" ").includes("ЛОКАТОР НЕ РАЗОБРАН"), unparsedOut.join(" | "));
+const cleanOut = [];
+const dClean = fakeDeps();
+dClean.log = (line) => cleanOut.push(String(line));
+await run(["verify", "--root", "/w/wiki"], dClean);
+check("verify молчит, когда все локаторы разобраны", !cleanOut.join(" ").includes("ЛОКАТОР НЕ РАЗОБРАН"), cleanOut.join(" | "));
 
 // --- CLI: выключенная сверка называется вслух. «с якорями: 0» и чистый линт при пустых корнях
 // читаются как «всё в порядке», хотя K016 не выполнялся вовсе и локаторы живут непроверенными

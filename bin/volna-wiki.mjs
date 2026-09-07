@@ -23,7 +23,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULTS, isIndexFile, loadSchema, readRecords, verifyAnchor, walkFiles } from "../lib/wiki.mjs";
+import { DEFAULTS, isIndexFile, loadSchema, readRecords, unparsedLocators, verifyAnchor, walkFiles } from "../lib/wiki.mjs";
 import { lint, formatFindings, ERROR } from "../lib/wiki-lint.mjs";
 import { planIndexes, planRoute, planPlacement } from "../lib/wiki-index.mjs";
 import { parseLegacyIndex, planFlatten, planMigration } from "../lib/wiki-migrate.mjs";
@@ -269,8 +269,18 @@ export async function run(argv, deps = {}) {
         else if (v.verdict === "корень не объявлен") problems.push(`КОРЕНЬ НЕ ОБЪЯВЛЕН  ${at}  ${a.path} - дописать reference_roots в SCHEMA.md`);
       }
     }
+    // Неразобранный локатор молча выпадает из сверки, а «якорей кода: 0» читается как «всё сошлось».
+    const unparsed = [];
+    for (const r of records) for (const l of unparsedLocators(r.body)) unparsed.push(`${r.rel}#${r.anchor}  ${l}`);
+    const withSources = records.filter((r) => r.has("источник")).length;
     log(`записей: ${records.length}, якорей кода: ${total}`);
     for (const [k, v] of Object.entries(counts)) if (v) log(`  ${k}: ${v}`);
+    if (!total && withSources) log(`  сверка не выполнялась: записей с блоком источника ${withSources}, локатора с номером строки ни одного`);
+    if (unparsed.length) {
+      log("");
+      log(`ЛОКАТОР НЕ РАЗОБРАН: ${unparsed.length} - формат строки, сверка их не касалась`);
+      for (const u of unparsed) log(`  ${u}`);
+    }
     if (problems.length) { log(""); for (const p of problems) log(p); }
     if (flags.fix && moves.length) {
       const readFile = deps.readFile ?? ((p) => readFileSync(p, "utf8"));

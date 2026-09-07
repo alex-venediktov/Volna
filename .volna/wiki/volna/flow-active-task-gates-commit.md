@@ -13,6 +13,6 @@
 журнала - тихо, без единого сообщения.
 
 **источник:**
-- `hooks/gate.mjs:25` - `const active = loadActive(input.cwd, { respectMute: false });`
+- `hooks/gate.mjs:27` - `const active = loadActive(input.cwd, { respectMute: false });`
 
 **связи:** [[flow-capture-before-commit]], [[journal-state-fields-exact]]

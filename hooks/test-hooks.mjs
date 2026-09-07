@@ -129,6 +129,9 @@ write("implement");
   write("implement", { sections: later });                 // резюме 12:30 против записи 18:40
   const lag = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
   check("резюме отстало от лога: шапка предупреждает", lag.includes("отстало") && lag.includes("18:40"), lag);
+  // Срок - граница отдачи хода: «перепиши его» на каждом ходе противоречило правилу журнала,
+  // которое внутри автопрохода требует одной перезаписи за цепочку.
+  check("отставшее резюме: срок назван границей хода", /перепиши до отдачи хода/.test(lag), lag);
 
   write("implement", { summary: "2026-07-25 19:00", sections: later });
   const fresh = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
@@ -247,7 +250,8 @@ stages_done: [intake]
 
 // --- 6b. Разросшееся «Состояние» и подпункты не по шаблону ---------------------
 {
-  // Резюме на 8 КБ с подпунктами «цель задачи» и «### Следующий шаг» - обе проверки обязаны сработать.
+  // Резюме на 8 КБ: «цель задачи» - законное уточнение имени подпункта, а «### Следующий шаг» -
+  // заголовок вместо подпункта, и пропавшими названы именно «сделано» и «следующий шаг».
   const fat = "**цель задачи:** сверка видов с эталоном.\n" +
     `**решение человека:** вариант Б.\n${"**установлено:** длинная выкладка про эталон. ".repeat(200)}\n` +
     "### Следующий шаг\n1. разобрать вид логотипа.\n";
@@ -261,7 +265,8 @@ stages_done: [intake]
   const c = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "правим" }));
   check("разросшееся «Состояние»: шапка называет размер", /разрослось \(\d+ КБ\)/.test(c), c);
   check("подпункты не по шаблону: шапка называет пропавшие",
-    /нет подпунктов .*цель.*сделано.*следующий шаг/.test(c), c);
+    /нет подпунктов .*сделано.*следующий шаг/.test(c), c);
+  check("уточнение после имени подпункта пропажей не считается", !/нет подпунктов .*цель/.test(c), c);
 
   const s = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
   check("SessionStart: сказано, куда унести разросшееся", s.includes(".volna/wiki/") && /КБ вместо экрана/.test(s), s);
@@ -271,6 +276,20 @@ stages_done: [intake]
   const ok = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "правим" }));
   check("резюме по шаблону: предупреждений нет",
     !/разрослось/.test(ok) && !/нет подпунктов/.test(ok), ok);
+
+  // На задаче из частей естественная форма подпункта - «сделано в части N»; строгое имя объявляло
+  // её отсутствующей на каждом ходе, хотя подпункт есть.
+  const parted = readFileSync(statePath, "utf8").replace("**сделано:**", "**сделано в части 2:**");
+  writeFileSync(statePath, parted, "utf8");
+  const withPart = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "правим" }));
+  check("«сделано в части N» считается подпунктом «сделано»", !/нет подпунктов/.test(withPart), withPart);
+
+  // Уточнение отделяется пробелом: иначе чужой подпункт закрывал бы требование своим именем.
+  writeFileSync(statePath, readFileSync(statePath, "utf8").replace("**сделано в части 2:**", "**сделано-не-то:**"), "utf8");
+  const wrongName = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "правим" }));
+  check("подпункт с приклеенным уточнением за «сделано» не идёт", /нет подпунктов .*сделано/.test(wrongName), wrongName);
+
+  write("implement");
 }
 
 // --- 6a. Журнал из двух файлов: состояние отдельно, лог отдельно ---------------
