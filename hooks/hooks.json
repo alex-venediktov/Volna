@@ -25,18 +25,6 @@
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "if": "Bash(git commit*)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "if": "Bash(git push*)",
         "hooks": [
           {
             "type": "command",
