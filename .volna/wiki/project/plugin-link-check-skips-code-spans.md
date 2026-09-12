@@ -16,4 +16,9 @@
 Тот же приём нужен любому проходу по текстам плагина, где документация **показывает** синтаксис:
 записи вики и `STATUS.md` цитируют форму локатора, файлы этапов - форму команд.
 
-**связи:** [[plugin-rename-touches-wiki]], [[rules-rule-on-the-path]]
+Проверка заведена: `bin/volna-doc.mjs lint`, коды `D001` (цель ссылки не существует) и `D002`
+(мёртвый якорь); вырезание кода - `stripCode` в `lib/doc-lint.mjs`, оно сохраняет разбиение
+на строки, иначе номер строки в находке уезжает.
+
+**связи:** [[plugin-rename-touches-wiki]], [[rules-rule-on-the-path]],
+[[cost-budget-set-from-current-size]], [[plugin-direct-run-suffix-catches-test]]

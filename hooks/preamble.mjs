@@ -7,7 +7,7 @@
  * добавляется ссылка и три строки резюме. Только точное совпадение по номеру - никакого
  * поиска по смыслу: он стоил бы токенов на каждом сообщении.
  */
-import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, partOf, STAGES }
+import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, partOf, openCheckpoint, STAGES }
   from "./lib/volna-state.mjs";
 
 const MAX_LINES = 20;
@@ -28,6 +28,10 @@ await runQuietly(async () => {
     const part = partOf(fm);
     if (part) head.push(`· часть ${part}`);
     if (fm.branch) head.push(`· ${fm.branch}`);
+    // Фаза называется только когда она не «в работе»: у задачи на паузе и у заблокированной
+    // следующий шаг не тот, что записан в журнале, и без строки это видно только человеку
+    if (active.phase === "paused") head.push("· пауза");
+    else if (active.phase === "blocked") head.push(`· блок${active.blocked ? `: ${truncate(active.blocked, 40)}` : ""}`);
     // Время машины: метки журнала ставит модель, а текущего времени она не знает.
     head.push(`· сейчас ${localStamp()}`);
     lines.push(head.join(" "));
@@ -43,6 +47,13 @@ await runQuietly(async () => {
     // Отставшее резюме опаснее его отсутствия: оно читается как актуальное. Срок - граница отдачи
     // хода, а не «сейчас же»: внутри автопрохода правило журнала требует одной перезаписи за
     // цепочку, и подсказка «перепиши его» на каждом ходе противоречила ему прямым текстом.
+    // Оборванный чек-пойнт опаснее отсутствующего: «Состояние» выглядит дописанным
+    const lock = openCheckpoint(active.logText || active.text);
+    if (lock) {
+      lines.push(`  чек-пойнт начат ${lock} и не закрыт - «Состоянию» не доверяй,` +
+        " восстанавливай по хвосту лога и перепиши секцию");
+    }
+
     const lag = summaryLag(active.text, active.logText);
     if (lag === "missing") {
       lines.push("  в журнале нет секции «## Состояние» - после /compact придётся читать лог целиком");

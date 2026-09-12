@@ -88,7 +88,10 @@ export function hasTracker(profile) {
 }
 
 /** Ключи верхнего уровня, которые state.json вправе содержать. Всё прочее - опечатка. */
-export const STATE_KEYS = ["active", "updated", "muted"];
+export const STATE_KEYS = ["active", "updated", "muted", "phase", "blocked"];
+
+/** Фазы активной задачи. Ключа нет - задача в работе: прежние состояния читаются без правки. */
+export const PHASES = ["active", "paused", "blocked"];
 
 /**
  * state.json: указатель на активную задачу и признак глушения.
@@ -106,9 +109,13 @@ export function readState(volnaDir) {
     const s = JSON.parse(raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw);
     const unknown = s && typeof s === "object" && !Array.isArray(s)
       ? Object.keys(s).filter((k) => !STATE_KEYS.includes(k)) : [];
-    return { active: s.active ? String(s.active) : null, muted: s.muted === true, unknown };
+    // Фаза вне набора читается как её отсутствие: опечатка в значении не должна прятать задачу,
+    // а о самом ключе скажет проверка неизвестных ключей, если ошиблись в имени
+    const phase = PHASES.includes(String(s.phase ?? "").trim()) ? String(s.phase).trim() : "active";
+    const blocked = typeof s.blocked === "string" ? s.blocked.trim() : "";
+    return { active: s.active ? String(s.active) : null, muted: s.muted === true, phase, blocked, unknown };
   } catch {
-    return { active: null, muted: false, unknown: [] };
+    return { active: null, muted: false, phase: "active", blocked: "", unknown: [] };
   }
 }
 
@@ -283,6 +290,24 @@ function normStamp(s) {
   return String(s).replace(/[T\t ]+/g, " ").trim();
 }
 
+/**
+ * Незакрытый замок чек-пойнта: в логе есть «чек-пойнт начат» и после него нет «чек-пойнт закрыт».
+ * Значит ход оборвался посередине записи, и «Состояние» могло остаться от прошлого захода -
+ * доверять ему нельзя (скилл volna-journal, references/state.md).
+ *
+ * Замок закрывается последним намеренно, поэтому признак односторонний: закрытие без начала
+ * находкой не считается - это журнал, заведённый до появления замка.
+ */
+export function openCheckpoint(logText) {
+  const text = String(logText || "");
+  const started = text.lastIndexOf("**чек-пойнт начат:**");
+  if (started < 0) return null;
+  const closed = text.lastIndexOf("**чек-пойнт закрыт:**");
+  if (closed > started) return null;
+  const stamp = /\*\*чек-пойнт начат:\*\*\s*([^\n]*)/.exec(text.slice(started));
+  return (stamp?.[1] ?? "").trim() || "без метки";
+}
+
 /** Подпункты «Состояния», без которых секция не выполняет свою работу (скилл volna-journal). */
 export const SUMMARY_FIELDS = ["цель", "сделано", "следующий шаг"];
 
@@ -331,7 +356,7 @@ export function loadActive(cwd, { respectMute = true } = {}) {
   if (respectMute && state.muted) return null;
   const journal = readJournal(volnaDir, state.active);
   if (!journal) return null;
-  return { volnaDir, task: state.active, muted: state.muted, ...journal };
+  return { volnaDir, task: state.active, muted: state.muted, phase: state.phase, blocked: state.blocked, ...journal };
 }
 
 /** Порядок этапов флоу - для позиции k/N в шапке. Коммит входит в deliver, своего этапа нет. */

@@ -234,6 +234,62 @@ stages_done: [intake]
   write("implement");
 }
 
+// --- 5а. Фаза задачи: пауза и блокировка видны, «в работе» молчит ---------------
+{
+  const state = (extra) => writeFileSync(join(volnaDir, "state.json"),
+    JSON.stringify({ active: "21571", updated: "2026-07-25T12:30", ...extra }), "utf8");
+
+  state({ phase: "paused" });
+  const head = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("пауза названа в шапке", head.includes("пауза"), head);
+  const start = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
+  check("пауза: продолжать только по слову человека", /снимаем ли паузу/.test(start), start);
+
+  state({ phase: "blocked", blocked: "нет доступа к трекеру" });
+  const blockedHead = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("блокировка названа с причиной", blockedHead.includes("блок") && blockedHead.includes("доступа"), blockedHead);
+
+  // Фаза по умолчанию - «в работе»: журналы, заведённые до появления ключа, не должны шуметь
+  state({});
+  const quiet = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("без ключа фазы шапка о ней молчит", !quiet.includes("пауза") && !quiet.includes("блок"), quiet);
+
+  // Опечатка в ЗНАЧЕНИИ не прячет задачу: задача видна, фаза читается как «в работе»
+  state({ phase: "пауза" });
+  const typo = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("неизвестная фаза не прячет задачу", typo.includes("21571") && !typo.includes("пауза"), typo);
+
+  // А вот опечатка в ИМЕНИ ключа по-прежнему называется вслух
+  state({ phasa: "paused" });
+  const badKey = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("неизвестный ключ фазы назван", badKey.includes("phasa"), badKey);
+
+  write("implement");
+}
+
+// --- 5б. Незакрытый замок чек-пойнта -------------------------------------------
+{
+  write("implement", { sections: "\n**чек-пойнт начат:** 2026-07-25 14:00\n" });
+  const head = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("незакрытый чек-пойнт: шапка не велит верить «Состоянию»",
+    /не закрыт/.test(head) && /не доверяй/.test(head), head);
+  const start = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
+  check("незакрытый чек-пойнт виден и при старте сессии", /не закрыт/.test(start), start);
+
+  write("implement", { sections: "\n**чек-пойнт начат:** 2026-07-25 14:00\n**чек-пойнт закрыт:** 2026-07-25 14:05\n" });
+  const closed = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("закрытый чек-пойнт находкой не становится", !/не закрыт/.test(closed), closed);
+  write("implement");
+}
+
+// --- 5в. Возобновление разоружает автопроход -----------------------------------
+{
+  write("implement");
+  const start = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
+  check("старт сессии: первый ход отдаётся человеку",
+    /первый ход - человеку/.test(start), start);
+}
+
 // --- 6. Гейт commit: нет записи по этапу -> deny, есть -> пропуск --------------
 {
   const g = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",

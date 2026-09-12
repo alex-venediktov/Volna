@@ -310,6 +310,16 @@ const unparsedRec = { ...records[1], body: `${records[1].body}
 check("неразобранный локатор найден линтом", lint({ records: [unparsedRec], files, schema }).some((f) => f.code === "K023"),
   lint({ records: [unparsedRec], files, schema }).map((f) => f.code).join(","));
 check("линт молчит про разобранные локаторы", !lint({ records, files, schema, indexed: plan.indexed }).some((f) => f.code === "K023"));
+// Постмортем отвечает на вопрос «что теперь ловит этот класс ошибок». Без «страховки» это
+// история дефекта, а истории живут в логе задачи и не перечитываются.
+const pmBare = { ...records[1], type: "постмортем", has: (n) => n !== "страховка" && records[1].has(n) };
+check("постмортем без страховки найден", lint({ records: [pmBare], files, schema }).some((f) => f.code === "K024"),
+  lint({ records: [pmBare], files, schema }).map((f) => f.code).join(","));
+const pmGuarded = { ...records[1], type: "постмортем", has: (n) => n === "страховка" || records[1].has(n) };
+check("постмортем со страховкой линт не трогает", !lint({ records: [pmGuarded], files, schema }).some((f) => f.code === "K024"),
+  lint({ records: [pmGuarded], files, schema }).map((f) => f.code).join(","));
+check("тип «постмортем» входит в закрытый список", !lint({ records: [pmGuarded], files, schema }).some((f) => f.code === "K007"),
+  schema.types.join(","));
 
 // --- CLI: без --fix ничего не пишется
 const d1 = fakeDeps();
