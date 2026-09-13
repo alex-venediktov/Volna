@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, existsS
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { readProfile, hasTracker, isPlaceholder, parseFrontmatter, partOf, STAGES, stagePosition }
+import { readProfile, hasTracker, isPlaceholder, parseFrontmatter, partOf, partsProgress, partsLine, STAGES, stagePosition }
   from "./lib/volna-state.mjs";
 
 const volnaRoot = process.argv[2] || process.cwd();
@@ -749,8 +749,41 @@ open: []
   const p = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" });
   check("шапка называет часть: частично сделанная задача видна сразу",
     ctx(p).includes("часть 2 из 5"), ctx(p));
+  check("шапка считает остаток: сколько сделано и сколько осталось",
+    ctx(p).includes("сделано 1, осталось 1"), ctx(p));
   const s = run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" });
   check("начало сессии называет часть", ctx(s).includes("часть 2 из 5"), ctx(s));
+  check("начало сессии печатает карту частей целиком",
+    ctx(s).includes("1. первая - сделано") && ctx(s).includes("2. вторая - в работе"), ctx(s));
+
+  // Разбор списка частей: счёт остатка идёт из кода, а не из пересказа модели.
+  const body = `**цель:** довести работу частями.
+**части:**
+1. схема хранения - сделано (2026-08-16, 3ч)
+2. приём шага по форме - в работе
+3. продолжение цепочки - не начата
+4. миграция - снята: делаем отдельной задачей
+**сделано:** часть 1 закрыта.
+`;
+  const prog = partsProgress(body);
+  check("список частей: состояния разобраны по закрытому списку",
+    prog.items.map((it) => it.state).join(",") === "сделано,в работе,не начата,снята",
+    prog.items.map((it) => `${it.n}:${it.state}`).join(" "));
+  check("состояние части опознаётся: границы слова на кириллице не срабатывают",
+    prog.items[3].state === "снята", prog.items[3].state);
+  check("«не начата» не засчитывается за «сделано»",
+    prog.items[2].state === "не начата", prog.items[2].state);
+  check("заголовок части отделён от состояния",
+    prog.items[0].title === "схема хранения", prog.items[0].title);
+  check("снятая часть выведена из остатка, но названа отдельно",
+    partsLine(prog) === "сделано 1, осталось 2, снято 1", String(partsLine(prog)));
+  check("текущая часть - та, что в работе", prog.current.n === 2, String(prog.current?.n));
+  check("подпункта «части» нет: счёт не печатается",
+    partsProgress("**цель:** одна задача.\n**сделано:** всё.") === null,
+    String(partsProgress("**цель:** одна задача.")));
+  check("подпункт есть, а пунктов нет: счёт не печатается",
+    partsProgress("**части:** пока не делили\n**сделано:** -") === null,
+    String(partsProgress("**части:** пока не делили")));
 
   // Гейт про части ничего не знает и знать не должен: он смотрит stage и секции лога.
   const g = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",

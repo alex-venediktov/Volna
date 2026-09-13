@@ -380,6 +380,65 @@ export function partOf(fm) {
   return /^\d+$/.test(parts) ? `${part} из ${parts}` : part;
 }
 
+/**
+ * Состояния части из подпункта «**части:**» - закрытый список (skills/volna-flow,
+ * references/task-in-parts.md). Порядок проверки важен: «не начата» содержит «начата», поэтому
+ * стоит первой. Границы слова здесь не работают вовсе: класс `\w` в JS остаётся ASCII даже
+ * с флагом `u`, поэтому проверка «слово целиком» на кириллице не совпадает никогда
+ * (вика: process/js-word-boundary-misses-cyrillic).
+ */
+const PART_STATES = [
+  ["не начата", /не\s+начат[ао]/iu],
+  ["снята", /снят[ао]/iu],
+  ["сделано", /сделан[оа]/iu],
+  ["в работе", /в\s+работе/iu],
+];
+
+/**
+ * Разбор списка частей: сколько сделано, сколько осталось, что идёт сейчас. Счёт берётся из кода,
+ * а не из пересказа модели: остаток работы человек видит одинаково на каждом ходе.
+ *
+ * Возвращает null, когда подпункта нет или в нём нет ни одного нумерованного пункта: у задачи
+ * без деления строки о частях быть не должно вовсе.
+ */
+export function partsProgress(summaryBody) {
+  const m = /(?:^|\n)\*\*части(?:[ \t][^*:\n]*)?:\*\*[ \t]*([\s\S]*?)(?=\n\*\*|\n##|$)/
+    .exec(String(summaryBody || ""));
+  if (!m) return null;
+  const items = [];
+  for (const raw of m[1].split("\n")) {
+    const num = /^(\d+)[.)]\s*(.+)$/.exec(raw.trim());
+    if (!num) continue;
+    const rest = num[2].trim();
+    const state = PART_STATES.find(([, re]) => re.test(rest))?.[0] ?? "не названо";
+    // Заголовок - всё до маркера состояния: «2. приём шага - в работе» -> «приём шага».
+    const title = rest.replace(/\s*[-—:]\s*(снят|не\s+начат|сделан|в\s+работе)[\s\S]*$/iu, "").trim();
+    items.push({ n: Number(num[1]), title: title || rest, state });
+  }
+  if (!items.length) return null;
+  const count = (name) => items.filter((it) => it.state === name).length;
+  const done = count("сделано");
+  const dropped = count("снята");
+  return {
+    items,
+    total: items.length,
+    done,
+    dropped,
+    left: items.length - done - dropped,
+    current: items.find((it) => it.state === "в работе") ?? null,
+  };
+}
+
+/**
+ * Счёт частей строкой для шапки: «сделано 1, осталось 2». Снятые называются отдельно - без них
+ * сумма не сходится с числом частей, и человек считает, что часть потеряли.
+ */
+export function partsLine(progress) {
+  if (!progress) return null;
+  const tail = progress.dropped ? `, снято ${progress.dropped}` : "";
+  return `сделано ${progress.done}, осталось ${progress.left}${tail}`;
+}
+
 /** Позиция этапа в флоу, 1-based; 0 - этап неизвестен. */
 export function stagePosition(stage) {
   const i = STAGES.indexOf(String(stage || "").trim());

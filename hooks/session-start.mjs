@@ -5,7 +5,7 @@
  * Единственное, о чём говорим вне задачи: неопознанные ключи state.json - из-за них задачи и
  * «нет», так что молчание здесь было бы последствием дефекта, а не его отсутствием.
  */
-import { readHookInput, loadActive, findVolnaDir, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, truncate, localStamp, partOf, openCheckpoint, STAGES }
+import { readHookInput, loadActive, findVolnaDir, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, truncate, localStamp, partOf, partsProgress, openCheckpoint, STAGES }
   from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
@@ -31,6 +31,16 @@ await runQuietly(async () => {
     // Время машины для меток журнала: локальное, не UTC.
     `Сейчас: ${localStamp()}`,
   ];
+
+  // Карта частей целиком: возврат к задаче - тот момент, когда состав работы надо видеть
+  // весь, а не одним номером. Дальше по ходу печатается только счёт (шапка).
+  const summary0 = readSummary(active.text);
+  const progress = partsProgress(summary0?.body);
+  if (progress) {
+    lines.push(`Части: ${progress.total}, сделано ${progress.done}, осталось ${progress.left}` +
+      `${progress.dropped ? `, снято ${progress.dropped}` : ""}`);
+    for (const it of progress.items) lines.push(`  ${it.n}. ${truncate(it.title, 60)} - ${it.state}`);
+  }
 
   // Начало сессии - единственное место, где уместен следующий шаг из резюме целиком.
   const summary = readSummary(active.text);

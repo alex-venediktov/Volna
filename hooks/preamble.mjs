@@ -7,7 +7,7 @@
  * добавляется ссылка и три строки резюме. Только точное совпадение по номеру - никакого
  * поиска по смыслу: он стоил бы токенов на каждом сообщении.
  */
-import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, partOf, openCheckpoint, STAGES }
+import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, partOf, partsProgress, partsLine, openCheckpoint, STAGES }
   from "./lib/volna-state.mjs";
 
 const MAX_LINES = 20;
@@ -27,6 +27,11 @@ await runQuietly(async () => {
     // Задача из частей: без этой строки частично выполненная неотличима от просто незакрытой.
     const part = partOf(fm);
     if (part) head.push(`· часть ${part}`);
+    // Счёт остатка - из списка частей, а не из пересказа: иначе человек узнаёт остаток
+    // только тогда, когда модель решит о нём сказать.
+    const progress = partsProgress(readSummary(active.text)?.body);
+    const counts = partsLine(progress);
+    if (counts) head.push(`· ${counts}`);
     if (fm.branch) head.push(`· ${fm.branch}`);
     // Фаза называется только когда она не «в работе»: у задачи на паузе и у заблокированной
     // следующий шаг не тот, что записан в журнале, и без строки это видно только человеку
