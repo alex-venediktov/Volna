@@ -40,7 +40,7 @@ claude plugin validate .         # манифесты перед публика�
 
 **1. Инструкции для модели.** `skills/volna-flow/SKILL.md` — карта 13 этапов и правила автопрохода; `skills/volna-flow/stages/<этап>.md` — детали одного этапа (открывается только тот, который начинается); `skills/volna-flow/trackers/<трекер>/<этап>.md` — специфика конкретного трекера, открывается по строке профиля и никогда не читается проектом без трекера; `commands/<имя>.md` — точка входа человека, frontmatter с `description` и `argument-hint`.
 
-**2. Hooks** (`hooks/hooks.json`): `session-start.mjs`, `preamble.mjs` (шапка на каждое сообщение), `gate.mjs` (блокирует `git commit` без записи журнала и `git push` вне `deliver`). Всё общее — в `hooks/lib/volna-state.mjs`: поиск `.volna`, парсер frontmatter, чтение `state.json` и журнала, список `STAGES`.
+**2. Hooks** (`hooks/hooks.json`): `session-start.mjs`, `preamble.mjs` (шапка на каждое сообщение), `gate.mjs` (блокирует `git commit` без записи журнала и `git push` вне `deliver`), `stamp-guard.mjs` (`PostToolUse` на правку файла: метка секции журнала, ушедшая вперёд часов, называется в том же ходе). Всё общее — в `hooks/lib/volna-state.mjs`: поиск `.volna`, парсер frontmatter, чтение `state.json` и журнала, список `STAGES`.
 
 **3. CLI без сети в тестах.** `bin/volna-tfs.mjs` и `bin/volna-jira.mjs` — обёртки над `lib/tfs-client.mjs` / `lib/jira-client.mjs`; `bin/volna-wiki.mjs` — над `lib/wiki*.mjs`. Все три экспортируют `run(argv, deps)`, куда тест подставляет клиента, `fetch`, `log`/`err` — поэтому проверки идут без сети и без ФС. `lib/env.mjs` читает `.env` (уже заданная переменная окружения важнее файла).
 

@@ -308,6 +308,49 @@ export function openCheckpoint(logText) {
   return (stamp?.[1] ?? "").trim() || "без метки";
 }
 
+/**
+ * Метка заголовка, ушедшая ВПЕРЁД часов машины: `{stamp, minutes, now}` либо null. Смотрятся все
+ * заголовки файла - и секции лога, и «Состояние», - берётся самая далёкая.
+ *
+ * Зачем это в коде, а не ещё одной строкой правил: метка ставится моделью, часов она не знает, и
+ * догадка «прошло минут пять» уезжает вперёд на 4-25 минут. Правило «спросить часы» написано
+ * в скилле, в обязанностях и в references/time.md - наблюдений после этого шесть, на шести
+ * задачах. Расхождение вскрывалось на `close`, где по меткам считаются списываемые часы и где
+ * поправить их уже нечем: что было на самом деле, к тому времени никто не помнит.
+ *
+ * Допуск в минуту - против округления: часы отдают `HH:MM` без секунд, и метка, взятая в конце
+ * минуты, законно совпадает со следующей. Дальше минуты законных причин уйти вперёд нет.
+ */
+export function stampAhead(text, now = new Date(), toleranceMin = 1) {
+  const nowMs = now.getTime();
+  let worst = null;
+  for (const m of String(text || "").matchAll(/^##[ \t].*·[ \t]*(\d{4}-\d{2}-\d{2}[ \t]+\d{1,2}:\d{2})/gm)) {
+    const ms = stampMs(m[1]);
+    if (ms === null) continue;
+    const minutes = Math.round((ms - nowMs) / 60000);
+    if (minutes > toleranceMin && (!worst || minutes > worst.minutes)) {
+      worst = { stamp: normStamp(m[1]), minutes, now: localStamp(now) };
+    }
+  }
+  return worst;
+}
+
+/**
+ * Расхождение словами: минуты, часы или дни. Метка, уехавшая на день, в минутах читается
+ * шестизначным числом, и человек с моделью тратят ход на то, чтобы понять порядок величины.
+ */
+export function aheadLabel(minutes) {
+  if (minutes >= 2880) return `${Math.round(minutes / 1440)} дн`;
+  if (minutes >= 120) return `${Math.round(minutes / 60)} ч`;
+  return `${minutes} мин`;
+}
+
+/** Метка «YYYY-MM-DD HH:MM» как время машины; не разобралась - null. Зона не пишется и не берётся. */
+function stampMs(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ \t]+(\d{1,2}):(\d{2})/.exec(normStamp(s));
+  return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime() : null;
+}
+
 /** Подпункты «Состояния», без которых секция не выполняет свою работу (скилл volna-journal). */
 export const SUMMARY_FIELDS = ["цель", "сделано", "следующий шаг"];
 

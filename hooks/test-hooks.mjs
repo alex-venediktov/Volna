@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, existsS
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { readProfile, hasTracker, isPlaceholder, parseFrontmatter, partOf, partsProgress, partsLine, STAGES, stagePosition }
+import { readProfile, hasTracker, isPlaceholder, parseFrontmatter, partOf, partsProgress, partsLine, stampAhead, aheadLabel, STAGES, stagePosition }
   from "./lib/volna-state.mjs";
 
 const volnaRoot = process.argv[2] || process.cwd();
@@ -799,6 +799,53 @@ open: []
   check("порядок этапов: deliver одиннадцатый", stagePosition("deliver") === 11, `${stagePosition("deliver")}`);
   check("порядок этапов: cleanup закрывает флоу", stagePosition("cleanup") === STAGES.length, `${stagePosition("cleanup")}/${STAGES.length}`);
   check("порядок этапов: имя вне списка даёт 0", stagePosition("push-pr") === 0, `${stagePosition("push-pr")}`);
+}
+
+// --- 11. Метка секции, ушедшая вперёд часов машины ----------------------------
+{
+  const journalFile = join(volnaDir, "journal", "TASK-21571.md");
+  const future = "\n## implement · итерация 2 · 2099-01-01 10:00\n**что:** проба\n";
+  const guard = (payload) => run("stamp-guard.mjs", {
+    cwd: sandbox, hook_event_name: "PostToolUse", tool_name: "Edit",
+    tool_input: { file_path: journalFile }, ...payload,
+  });
+
+  write("implement", { sections: future });
+  const ahead = ctx(guard());
+  check("метка в будущем: hook называет её сразу после записи",
+    ahead.includes("2099-01-01 10:00") && ahead.includes("впереди часов"), ahead);
+  check("метка в будущем: сказано, чем брать верную", ahead.includes("date"), ahead);
+
+  const head = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("метка в будущем: шапка страхует hook записи",
+    head.includes("2099-01-01 10:00") && head.includes("впереди часов"), head);
+
+  // Чужой файл РЕАЛЬНО существует и метку в будущем содержит: иначе тишина доказывала бы
+  // только то, что файла нет, а не что hook смотрит на путь
+  mkdirSync(join(sandbox, "docs"), { recursive: true });
+  const alienFile = join(sandbox, "docs", "README.md");
+  writeFileSync(alienFile, future, "utf8");
+  const alien = guard({ tool_input: { file_path: alienFile } });
+  check("запись не в журнал: hook молчит", alien.out === "" && alien.code === 0, alien.out);
+  const bash = guard({ tool_name: "Bash", tool_input: { command: "git status" } });
+  check("чужой инструмент: hook молчит", bash.out === "", bash.out);
+
+  write("implement", { muted: true, sections: future });
+  check("сопровождение заглушено: hook молчит", guard().out === "", guard().out);
+
+  write("implement");
+  check("метка в прошлом: hook молчит", guard().out === "", guard().out);
+
+  const now = new Date(2026, 8, 22, 15, 50);
+  check("допуск в минуту: метка следующей минуты находкой не считается",
+    stampAhead("## implement · итерация 1 · 2026-09-22 15:51", now) === null,
+    JSON.stringify(stampAhead("## implement · итерация 1 · 2026-09-22 15:51", now)));
+  check("метка «Состояния» проверяется наравне с секциями лога",
+    stampAhead("## Состояние · 2026-09-22 17:00", now)?.minutes === 70,
+    JSON.stringify(stampAhead("## Состояние · 2026-09-22 17:00", now)));
+  check("расхождение названо крупной единицей: минуты, часы, дни",
+    aheadLabel(20) === "20 мин" && aheadLabel(180) === "3 ч" && aheadLabel(2880) === "2 дн",
+    `${aheadLabel(20)} / ${aheadLabel(180)} / ${aheadLabel(2880)}`);
 }
 
 console.log(failures === 0 ? "\nВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" : `\nПРОВАЛОВ: ${failures}`);

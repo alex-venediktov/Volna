@@ -33,6 +33,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/stamp-guard.mjs\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

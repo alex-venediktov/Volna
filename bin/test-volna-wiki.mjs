@@ -8,7 +8,7 @@
 import { run, parseArgs, findRoot } from "./volna-wiki.mjs";
 import { parseYamlSubset, loadSchema, slug, field, parseAnchors, unparsedLocators, readRecords, verifyAnchor, decodeSource, isIndexFile, nodeOf, DEFAULTS } from "../lib/wiki.mjs";
 import { lint } from "../lib/wiki-lint.mjs";
-import { planIndexes, planRoute, planPlacement, axisName } from "../lib/wiki-index.mjs";
+import { planIndexes, planRoute, planPlacement, axisName, keywords } from "../lib/wiki-index.mjs";
 import { parseLegacyIndex, planFlatten, planMigration, sectionForZone } from "../lib/wiki-migrate.mjs";
 
 let failures = 0;
@@ -277,6 +277,42 @@ check("то же слабое совпадение выдаётся, когда 
 check("чужая тема маршрута не получает",
   planRoute(ruRows, "термическая обработка стекла", schema).hits.length === 0,
   planRoute(ruRows, "термическая обработка стекла", schema).hits.map((h) => h.at).join(","));
+
+// --- акроним задачи и служебные слова: бизнес-сокращение в два знака и есть ключ запроса,
+// а «для» и «так» в предмете записи давали вес, которого хватало на отбор
+const acroRows = [
+  ...ruRows,
+  ruRecord("glossary-lt", "договор ЛТ", "ЛТ - длительный тариф, и в договоре он считается иначе"),
+];
+const noiseRows = [ruRecord("os-noise", "основа расчёта", "Вопрос особенности основы")];
+check("акроним в два знака ищется: запрос «ЛТ» находит запись про ЛТ",
+  planRoute(acroRows, "ЛТ", schema).hits.some((h) => h.at.startsWith("volna/glossary-lt.md")),
+  planRoute(acroRows, "ЛТ", schema).hits.map((h) => h.at).join(","));
+check("акроним среди служебных слов чужого узла не даёт",
+  planRoute(acroRows, "для ЛТ сделать вот так", schema).hits
+    .every((h) => h.at.startsWith("volna/glossary-lt.md")),
+  planRoute(acroRows, "для ЛТ сделать вот так", schema).hits.map((h) => h.at).join(","));
+check("акроним ищется целым словом: «ОС» не находится в «основе» и «вопросе»",
+  planRoute(noiseRows, "ОС", schema).hits.length === 0,
+  planRoute(noiseRows, "ОС", schema).hits.map((h) => h.at).join(","));
+check("запрос из одних служебных слов честно пуст, а не уводит наугад",
+  planRoute(ruRows, "вот так и для этого", schema).routes.length === 0,
+  planRoute(ruRows, "вот так и для этого", schema).words.join(","));
+check("служебное слово веса не даёт, содержательное рядом - даёт",
+  planRoute(acroRows, "договор ЛТ для секции", schema).hits[0]?.at.startsWith("volna/glossary-lt.md"),
+  planRoute(acroRows, "договор ЛТ для секции", schema).hits.map((h) => h.at).join(","));
+check("строчное слово из двух знаков акронимом не считается",
+  keywords("по от из ЛТ").join(",") === "лт", keywords("по от из ЛТ").join(","));
+check("число в два знака аббревиатурой не считается, в три - остаётся словом",
+  keywords("часть 12 ошибка 403").join(",") === "часть,ошибка,403",
+  keywords("часть 12 ошибка 403").join(","));
+// Слова запроса приходят из keywords без «ё», поэтому тексты размещения сравниваются так же:
+// иначе запись, написанная через «ё», переставала находиться своим же словом
+check("размещение не различает «ё» и «е»",
+  planPlacement([ruRecord("uchet", "приём заказа", "Приём заказа считается по факту")],
+    "учёт приёма заказа", schema).dir === "volna",
+  planPlacement([ruRecord("uchet", "приём заказа", "Приём заказа считается по факту")],
+    "учёт приёма заказа", schema).dir)
 
 // --- размещение новой записи в существующей иерархии
 const placeHit = planPlacement(deepRows, "Размеры на виде leftview в kompas при экспорте идут другим шагом", topicSchema);

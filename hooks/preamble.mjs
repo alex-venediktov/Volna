@@ -7,7 +7,7 @@
  * добавляется ссылка и три строки резюме. Только точное совпадение по номеру - никакого
  * поиска по смыслу: он стоил бы токенов на каждом сообщении.
  */
-import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, partOf, partsProgress, partsLine, openCheckpoint, STAGES }
+import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, partOf, partsProgress, partsLine, openCheckpoint, stampAhead, aheadLabel, STAGES }
   from "./lib/volna-state.mjs";
 
 const MAX_LINES = 20;
@@ -57,6 +57,14 @@ await runQuietly(async () => {
     if (lock) {
       lines.push(`  чек-пойнт начат ${lock} и не закрыт - «Состоянию» не доверяй,` +
         " восстанавливай по хвосту лога и перепиши секцию");
+    }
+
+    // Метку, ушедшую вперёд часов, ловит hook записи (stamp-guard.mjs) - здесь страховка на
+    // случай, когда журнал правили мимо Write/Edit: руками, скриптом, из другой сессии
+    const ahead = stampAhead(active.logText) || stampAhead(active.text);
+    if (ahead) {
+      lines.push(`  метка «${ahead.stamp}» в журнале впереди часов на ${aheadLabel(ahead.minutes)}` +
+        " - поправь заголовок секции, по меткам считаются часы на close");
     }
 
     const lag = summaryLag(active.text, active.logText);
