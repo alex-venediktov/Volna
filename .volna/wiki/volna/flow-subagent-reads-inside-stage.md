@@ -20,8 +20,8 @@ tool-схемы, начало сообщений), а подагент стар�
 одну активную задачу и по ней держит гейт `gate.mjs`; параллельные ветви дают гонку записи.
 
 **источник:**
-- `docs/STATUS.md:104` — `6. **Отвергнуто сознательно:** оркестратор, worktree на задачу, параллельные задачи, свой`
+- `docs/STATUS.md:108` — `6. **Отвергнуто сознательно:** оркестратор, worktree на задачу, параллельные задачи, свой`
 
 **проверено:** 2026-09-07
 
-**связи:** [[flow-chain-is-not-orchestrator]], [[journal-durable-state-is-committed]]
+**связи:** [[flow-chain-is-not-orchestrator]], [[journal-durable-state-is-committed]], [[flow-subagent-not-for-verification]]

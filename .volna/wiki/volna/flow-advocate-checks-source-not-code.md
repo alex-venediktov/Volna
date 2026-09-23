@@ -21,6 +21,6 @@
 нельзя - человек будет произносить это как своё.
 
 **источник:**
-- `skills/volna-flow/stages/advocate.md:38` — «из какой строки Delphi это следует?». Нет ответа — находка.
+- `skills/volna-flow/stages/advocate.md:35` — «из какой строки Delphi это следует?». Нет ответа — находка.
 
 **связи:** [[flow-stage-rerun-is-iteration]]
