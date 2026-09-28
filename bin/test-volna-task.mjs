@@ -5,7 +5,7 @@
  *
  * Запуск: node bin/test-volna-task.mjs
  */
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { run, parseArgs, setField, idDate } from "./volna-task.mjs";
 import { parseFrontmatter, childIds, readSummary, summaryField } from "../hooks/lib/volna-state.mjs";
 
@@ -54,6 +54,7 @@ function world(files) {
     now: NOW,
     readFile: (p) => (fs.has(p) ? fs.get(p) : null),
     writeFile: (p, t) => { fs.set(p, t); writes.push(p); },
+    listDir: (d) => [...fs.keys()].filter((p) => dirname(p) === d).map((p) => basename(p)),
     log: (s) => out.push(s),
     err: (s) => errs.push(s),
   };
@@ -223,6 +224,103 @@ const add = (w, slug, extra = []) => run(["add", "260929-root", "--slug", slug, 
   w.fs.set(J("260929-mid"), mid);
   await run(["start", "260929-mid"], w.deps);
   check("start ребёнка со статусом «ждёт детей» - статус не снимается", w.fm("260929-mid").status === "ждёт детей", w.fm("260929-mid").status);
+}
+
+// done и next: очередь детей
+{
+  const setup = async () => {
+    const w = world(base());
+    for (const s of ["one", "two", "three"]) await add(w, s);
+    await run(["start", "260929-one"], w.deps);
+    return w;
+  };
+  const st = (w) => JSON.parse(w.fs.get(STATE));
+
+  const w = await setup();
+  const code = await run(["done", "260929-one"], w.deps);
+  check("done: код 0", code === 0, w.errs.join("; "));
+  check("done: ребёнку пишется «закрыта»", w.fm("260929-one").status === "закрыта", w.fm("260929-one").status);
+  check("done: active возвращается к родителю", st(w).active === "260929-root", st(w).active);
+  check("done: прочие ключи state.json сохранены", st(w).muted === true);
+  check("done: остались открытые дети - родитель ждёт детей", w.fm("260929-root").status === "ждёт детей");
+  check("done: вывод называет следующего ребёнка", /следующий 260929-two/.test(w.out.at(-1)), w.out.at(-1));
+
+  const n = await run(["next"], w.deps);
+  check("next без аргумента берёт активного родителя и его первого открытого ребёнка",
+    n === 0 && st(w).active === "260929-two", `${n} ${st(w).active} ${w.errs.join("; ")}`);
+  check("next: у взятого ребёнка снят статус «новая»", w.fm("260929-two").status === "");
+
+  w.fs.set(J("260929-two"), setField(w.fs.get(J("260929-two")), "status", '"снята: не нужна"'));
+  await run(["done", "260929-two"], w.deps);
+  check("done снятого ребёнка: статус «снята» не переписывается", w.fm("260929-two").status === "снята: не нужна", w.fm("260929-two").status);
+  await run(["next"], w.deps);
+  check("next пропускает закрытых и снятых", st(w).active === "260929-three", st(w).active);
+  await run(["done", "260929-three"], w.deps);
+  check("done последнего открытого ребёнка - родитель в приёмке", w.fm("260929-root").status === "приёмка", w.fm("260929-root").status);
+  check("done последнего: active у родителя", st(w).active === "260929-root");
+
+  const again = await run(["next"], w.deps);
+  check("next без открытых детей - приёмка, код 0", again === 0 && w.fm("260929-root").status === "приёмка" && /приёмка/.test(w.out.at(-1)), w.out.at(-1));
+}
+
+// done и next: отказы без записи
+{
+  const refuse = async (name, files, argv) => {
+    const x = world(files);
+    const code = await run(argv, x.deps);
+    check(`${name}: отказ без записи`, code === 1 && x.writes.length === 0, `код ${code}; ${x.errs.join("; ")}`);
+    return x;
+  };
+  const w = world(base());
+  await add(w, "one");
+  await add(w, "two");
+  await run(["start", "260929-one"], w.deps);
+  const snap = () => Object.fromEntries(w.fs);
+
+  const other = await refuse("done при чужой активной задаче", snap(), ["done", "260929-two"]);
+  check("done при чужой активной: она названа", /260929-one/.test(other.errs.join(" ")));
+  await refuse("done задачи без родителя", snap(), ["done", "260929-root"]);
+
+  const nested = world(snap());
+  await run(["add", "260929-one", "--slug", "leaf", "--title", "Лист", "--goal", "Г"], nested.deps);
+  const x = world(Object.fromEntries(nested.fs));
+  const code = await run(["done", "260929-one"], x.deps);
+  check("done ребёнка с открытыми своими детьми - отказ без записи", code === 1 && x.writes.length === 0, `код ${code}`);
+  check("done ребёнка с открытыми детьми: дети названы", /260929-leaf/.test(x.errs.join(" ")), x.errs.join("; "));
+
+  await refuse("next у задачи, которая не активна", snap(), ["next", "260929-root"]);
+  await refuse("next у задачи без детей", { ...snap(), [STATE]: `{"active": "260929-two"}` }, ["next"]);
+  await refuse("next у задачи без журнала", { ...snap(), [STATE]: "{}" }, ["next", "260929-nobody"]);
+
+  const broken = world({ ...snap(), [STATE]: `{"active": "260929-root"}`,
+    [J("260929-root")]: setField(w.fs.get(J("260929-root")), "children", "[260929-ghost, 260929-two]") });
+  await run(["next"], broken.deps);
+  check("next: ребёнок без журнала пропускается и называется", JSON.parse(broken.fs.get(STATE)).active === "260929-two" &&
+    broken.out.some((l) => /260929-ghost без журнала/.test(l)), broken.out.join("; "));
+}
+
+// list: незакрытые задачи
+{
+  const w = world(base());
+  await add(w, "one");
+  await add(w, "two");
+  w.fs.set(J("260929-two"), setField(w.fs.get(J("260929-two")), "status", "закрыта"));
+  w.fs.set(join(VOLNA, "journal", "logs", "TASK-260929-root.log.md"), "# лог");
+  w.fs.set(J("260101-old"), "---\ntask: 260101-old\ntitle: \"Старая\"\nstage: cleanup\nupdated: 2026-01-01T10:00\n---\n");
+  w.fs.set(J("260102-stuck"), "---\ntask: 260102-stuck\ntitle: \"Брошенная\"\nstage: implement\nupdated: 2026-01-02T10:00\n---\n");
+  const from = w.out.length;
+  await run(["list"], w.deps);
+  const text = w.out.slice(from).join("\n");
+  check("list: активная задача отмечена", /260929-root Корень - в работе.*<- активна/.test(text), text);
+  check("list: новый ребёнок в списке", text.includes("260929-one Ребёнок one - новая"), text);
+  check("list: закрытый ребёнок не в списке", !text.includes("260929-two"), text);
+  check("list: журнал без статуса на cleanup читается закрытым", !text.includes("260101-old"), text);
+  check("list: брошенная на середине задача без статуса видна", text.includes("260102-stuck Брошенная - в работе"), text);
+  check("list: свежие первыми", text.indexOf("260102-stuck") > text.indexOf("260929-root"), text);
+
+  const none = world({ [STATE]: "{}", [J("260101-old")]: "---\ntask: 260101-old\nstage: cleanup\n---\n" });
+  await run(["list"], none.deps);
+  check("list без незакрытых задач так и говорит", none.out.join(" ") === "незакрытых задач нет", none.out.join(" "));
 }
 
 console.log(failures ? `\nПРОВАЛЕНО: ${failures}` : "\nВСЕ ПРОВЕРКИ ПРОЙДЕНЫ");

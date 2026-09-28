@@ -887,6 +887,21 @@ open: []
   const so = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
   check("начало сессии называет родителя, который не перечисляет ребёнка в children",
     so.includes("Родитель t-root не перечисляет t-typo в children"), so);
+  const others = so.slice(so.indexOf("Другие незакрытые задачи:"));
+  check("начало сессии перечисляет незакрытые задачи вне дерева", so.includes("Другие незакрытые задачи: ") &&
+    others.includes("\n  t-x ") && others.includes("\n  t-y "), so);
+  check("список других задач не повторяет дерево, закрытых и саму активную",
+    !/\n  t-(a|b|c|root|typo) /.test(others), others);
+
+  writeFileSync(join(volnaDir, "state.json"), JSON.stringify({ updated: "2026-09-29T10:00" }), "utf8");
+  const none = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
+  check("начало сессии без активной задачи называет незакрытые", none.includes("активной задачи нет, незакрытых задач:") &&
+    none.includes("\n  t-b расчёт стоимости - в работе"), none);
+  check("список незакрытых держит пять строк, остаток - счётом", (none.match(/\n  [^.\s]/g) ?? []).length === 5 &&
+    /\n  \.\.\. ещё \d+: volna-task list/.test(none), none);
+  writeFileSync(join(volnaDir, "state.json"), JSON.stringify({ muted: true }), "utf8");
+  check("заглушённое начало сессии без активной задачи списка не печатает",
+    !ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" })).includes("незакрытых"), "");
 
   writeFileSync(join(volnaDir, "state.json"),
     JSON.stringify({ active: "t-b", updated: "2026-09-29T10:00" }), "utf8");

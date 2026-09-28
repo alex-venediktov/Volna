@@ -5,7 +5,7 @@
  * Правило для всех hooks: любая внутренняя ошибка - тихий выход 0. Hook не имеет права
  * ломать обычную работу; исключение одно - намеренный гейт (hooks/gate.mjs).
  */
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 
 /** Прочитать JSON события с stdin. Пустой или битый вход - пустой объект. */
@@ -530,19 +530,21 @@ export function safeTaskId(id) {
  * Узел дерева задач по файлу состояния, без лога: шапка читает детей на каждом ходе.
  * Журнала нет - внешняя ссылка (родительская US бага в трекере), дерево на ней кончается.
  */
-export function readNode(volnaDir, id, activeId = null) {
-  const node = { id, external: true, title: "", status: "нет журнала", reason: "", children: [], parent: "" };
+export function readNode(volnaDir, id, activeId = null, read = (p) => readFileSync(p, "utf8")) {
+  const node = { id, external: true, title: "", status: "нет журнала", reason: "", children: [], parent: "", updated: "", stage: "" };
   if (!safeTaskId(id)) return node;
   let text;
   try {
-    text = readFileSync(join(volnaDir, "journal", `TASK-${id}.md`), "utf8");
+    text = read(join(volnaDir, "journal", `TASK-${id}.md`));
   } catch {
     return node;
   }
+  if (text == null) return node;
   const fm = parseFrontmatter(text);
   const { status, reason } = taskStatus(fm, id === activeId);
   return { id, external: false, title: String(fm.title || ""), status, reason,
-    children: childIds(fm), parent: String(fm.parent || "").trim() };
+    children: childIds(fm), parent: String(fm.parent || "").trim(),
+    updated: String(fm.updated || ""), stage: String(fm.stage || "") };
 }
 
 /**
@@ -624,6 +626,47 @@ export function taskTree(volnaDir, rootId, activeId = null, { maxDepth = 4, maxL
   walk(rootId, 0);
   if (hidden) lines.push(`... ещё ${hidden}`);
   return lines;
+}
+
+/** Задача не кончилась: всё, кроме `закрыта` и `снята`, включая неопознанный статус. */
+export function isOpenStatus(status) {
+  return status !== "закрыта" && status !== "снята";
+}
+
+/** Идентификаторы дерева от корня вниз, без повторов и с тем же пределом глубины, что у `taskTree`. */
+export function treeIds(volnaDir, rootId, maxDepth = 4) {
+  const seen = new Set();
+  const walk = (id, depth) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    if (depth >= maxDepth) return;
+    for (const child of readNode(volnaDir, id).children) walk(child, depth + 1);
+  };
+  walk(rootId, 0);
+  return seen;
+}
+
+/**
+ * Незакрытые задачи по журналам `journal/TASK-*.md`, кроме перечисленных в `exclude`; порядок - по
+ * `updated`, свежие первыми. Каталог не читается - пустой список: hook не имеет права падать.
+ */
+export function openTasks(volnaDir, activeId = null, exclude = new Set(),
+  { listDir = (d) => readdirSync(d), read } = {}) {
+  let names;
+  try {
+    names = listDir(join(volnaDir, "journal"));
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const name of names) {
+    const m = /^TASK-(.+)\.md$/.exec(name);
+    if (!m || m[1].endsWith(".log") || exclude.has(m[1])) continue;
+    const node = readNode(volnaDir, m[1], activeId, read);
+    if (node.external || !isOpenStatus(node.status)) continue;
+    out.push(node);
+  }
+  return out.sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
 }
 
 /** Позиция этапа в флоу, 1-based; 0 - этап неизвестен. */

@@ -5,7 +5,7 @@
  * Единственное, о чём говорим вне задачи: неопознанные ключи state.json - из-за них задачи и
  * «нет», так что молчание здесь было бы последствием дефекта, а не его отсутствием.
  */
-import { readHookInput, loadActive, findVolnaDir, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, truncate, localStamp, partOf, partsProgress, taskStatus, statusLabel, ancestry, childIds, taskTree, openCheckpoint, STAGES }
+import { readHookInput, loadActive, findVolnaDir, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, truncate, localStamp, partOf, partsProgress, taskStatus, statusLabel, ancestry, childIds, taskTree, openCheckpoint, openTasks, treeIds, readState, STAGES }
   from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
@@ -13,8 +13,15 @@ await runQuietly(async () => {
   const active = loadActive(input.cwd);
   if (!active) {
     // Задачи нет либо она не опознана - разные вещи, и вторая молчала бы так же, как первая
-    const keyWarning = stateKeyWarning(findVolnaDir(input.cwd));
-    if (keyWarning) emitContext("SessionStart", [`Волна: ${keyWarning}`]);
+    const volnaDir = findVolnaDir(input.cwd);
+    const keyWarning = stateKeyWarning(volnaDir);
+    // Незакрытая работа без активной задачи - забытая: её и надо видеть в начале сессии.
+    const open = volnaDir && !readState(volnaDir).muted ? openTasks(volnaDir) : [];
+    const lines = [
+      ...(keyWarning ? [`Волна: ${keyWarning}`] : []),
+      ...(open.length ? [`Волна: активной задачи нет, незакрытых задач: ${open.length}`, ...openLines(open)] : []),
+    ];
+    if (lines.length) emitContext("SessionStart", lines);
     return;
   }
 
@@ -59,6 +66,9 @@ await runQuietly(async () => {
     lines.push("Дерево задач:");
     for (const line of taskTree(active.volnaDir, rootId, task)) lines.push(`  ${line}`);
   }
+  // Незакрытые задачи вне дерева: отложенная ради срочной работа не должна пропадать из виду.
+  const others = openTasks(active.volnaDir, task, new Set([task, ...treeIds(active.volnaDir, rootId)]));
+  if (others.length) lines.push(`Другие незакрытые задачи: ${others.length}`, ...openLines(others));
 
   // Начало сессии - единственное место, где уместен следующий шаг из резюме целиком.
   const summary = readSummary(active.text);
@@ -120,4 +130,13 @@ function formatAge(mins) {
   if (mins < 120) return `${mins} мин`;
   const hours = Math.round(mins / 60);
   return hours < 48 ? `${hours} ч` : `${Math.round(hours / 24)} дн`;
+}
+
+/** Строки списка незакрытых задач: до пяти, остальное - счётом. */
+function openLines(nodes, limit = 5) {
+  const lines = nodes.slice(0, limit).map((node) =>
+    `  ${node.id}${node.title ? ` ${truncate(node.title, 50)}` : ""} - ${statusLabel(node)}` +
+    `${node.stage ? ` · ${node.stage}` : ""}${node.updated ? ` · ${node.updated.replace("T", " ")}` : ""}`);
+  if (nodes.length > limit) lines.push(`  ... ещё ${nodes.length - limit}: volna-task list`);
+  return lines;
 }

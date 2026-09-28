@@ -15,8 +15,8 @@
 проверка обязана покраснеть.
 
 **источник:**
-- `bin/test-volna-task.mjs:153` — `await refuse("родитель с переходом вверх, ведущим к настоящему журналу", base(), ["add", "x/../TASK-260929-root", "--slug", "ok-slug", "--title", "Т", "--goal", "Г"]);`
-- `bin/test-volna-task.mjs:207` — `const climbing = { ...snap(), [STATE]: "{}", [J("260929-first-step")]: setField(w.fs.get(J("260929-first-step")), "parent", "x/../TASK-260929-root") };`
+- `bin/test-volna-task.mjs:154` — `await refuse("родитель с переходом вверх, ведущим к настоящему журналу", base(), ["add", "x/../TASK-260929-root", "--slug", "ok-slug", "--title", "Т", "--goal", "Г"]);`
+- `bin/test-volna-task.mjs:208` — `const climbing = { ...snap(), [STATE]: "{}", [J("260929-first-step")]: setField(w.fs.get(J("260929-first-step")), "parent", "x/../TASK-260929-root") };`
 - `hooks/lib/volna-state.mjs:526` — `return Boolean(id) && !/[\\/]/.test(id) && !id.includes("..");`
 
 **проверено:** 2026-09-29

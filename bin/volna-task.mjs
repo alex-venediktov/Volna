@@ -7,14 +7,18 @@
  *   volna-task add <родитель> --slug слова-через-дефис --title "заголовок" --goal "постановка"
  *              [--type task] [--date ГГММДД]   завести ребёнка в конец очереди родителя
  *   volna-task start <ребёнок>                ребёнок становится активной задачей, родитель ждёт детей
+ *   volna-task done <ребёнок>                 ребёнок закрыт, активен снова родитель: ждёт детей или приёмка
+ *   volna-task next [родитель]                первый открытый ребёнок по порядку; открытых нет - приёмка
+ *   volna-task list                           незакрытые задачи по журналам
  *
  * Каталог `.volna` ищется вверх от рабочего до корня репозитория.
  * Коды возврата: 0 сделано, 1 отказ (ничего не записано), 3 сбой инструмента.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
-import { childIds, findVolnaDir, localStamp, parseFrontmatter, safeTaskId, taskStatus } from "../hooks/lib/volna-state.mjs";
+import { childIds, findVolnaDir, isOpenStatus, localStamp, openTasks, parseFrontmatter, readNode, safeTaskId, statusLabel, taskStatus }
+  from "../hooks/lib/volna-state.mjs";
 
 /** Slug ребёнка: латиница и цифры словами через дефис (`stages/intake.md`, шаг 4). */
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+){0,5}$/;
@@ -134,9 +138,12 @@ export async function run(argv, deps = {}) {
   if (!command || command === "help" || flags.help) {
     log("volna-task add <родитель> --slug s --title t --goal g [--type task] [--date ГГММДД]");
     log("volna-task start <ребёнок>");
+    log("volna-task done <ребёнок>");
+    log("volna-task next [родитель]");
+    log("volna-task list");
     return 0;
   }
-  if (command !== "add" && command !== "start") { err(`неизвестная команда: ${command}`); return 3; }
+  if (!["add", "start", "done", "next", "list"].includes(command)) { err(`неизвестная команда: ${command}`); return 3; }
 
   const volnaDir = deps.volnaDir ?? findVolnaDir(deps.cwd ?? process.cwd());
   if (!volnaDir || (!deps.volnaDir && !existsSync(volnaDir))) { err("каталог .volna не найден: «Волна» здесь не развёрнута"); return 3; }
@@ -186,29 +193,89 @@ export async function run(argv, deps = {}) {
     return 0;
   }
 
-  const child = String(args[0] ?? "").trim();
-  if (!safeTaskId(child)) { err(`ребёнок «${child}» не годится в id задачи`); return 1; }
-  const childText = readFile(journalPath(child));
-  if (childText == null) { err(`у задачи ${child} нет журнала в .volna/journal`); return 1; }
-  const cfm = parseFrontmatter(childText);
-  const parent = String(cfm.parent ?? "").trim();
-  const parentText = safeTaskId(parent) ? readFile(journalPath(parent)) : null;
-  if (!safeTaskId(parent) || parentText == null) { err(`у задачи ${child} нет родителя с журналом - это не ребёнок`); return 1; }
-  const pfm = parseFrontmatter(parentText);
-  if (!childIds(pfm).includes(child)) { err(`родитель ${parent} не перечисляет ${child} в children: поправь связь`); return 1; }
-  const own = taskStatus(cfm, false).status;
-  if (own === "закрыта" || own === "снята") { err(`задача ${child} ${own} - начинать нечего`); return 1; }
+  const readTask = (id) => {
+    const text = safeTaskId(id) ? readFile(journalPath(id)) : null;
+    return text == null ? null : { id, text, fm: parseFrontmatter(text) };
+  };
+  const nodeOf = (id) => readNode(volnaDir, id, active, readFile);
+  const openChildren = (fm, except = "") => childIds(fm)
+    .filter((id) => id !== except)
+    .map(nodeOf)
+    .filter((node) => !node.external && isOpenStatus(node.status));
+  const writeState = (id) => writeFile(statePath, `${JSON.stringify({ ...state, active: id, updated: iso }, null, 2)}\n`);
+  const foreign = (...own) => (active && !own.includes(active) ? active : "");
+  /** Ребёнок становится активным: снимается только `новая`, родитель ждёт детей. */
+  const activate = (c, p) => {
+    const started = taskStatus(c.fm, false).status === "новая" ? setField(c.text, "status", "") : c.text;
+    writeFile(journalPath(c.id), setField(started, "updated", iso));
+    writeFile(journalPath(p.id), setField(setField(p.text, "status", "ждёт детей", "children"), "updated", iso));
+    writeState(c.id);
+  };
 
-  if (active && active !== parent && active !== child) {
+  if (command === "list") {
+    const tasks = openTasks(volnaDir, active, new Set(), { listDir: deps.listDir ?? ((d) => readdirSync(d)), read: readFile });
+    if (!tasks.length) { log("незакрытых задач нет"); return 0; }
+    for (const node of tasks) {
+      log(`${node.id}${node.title ? ` ${node.title}` : ""} - ${statusLabel(node)}` +
+        `${node.stage ? ` · этап ${node.stage}` : ""}${node.updated ? ` · ${node.updated}` : ""}` +
+        `${node.id === active ? "  <- активна" : ""}`);
+    }
+    return 0;
+  }
+
+  if (command === "next") {
+    const id = String(args[0] ?? active).trim();
+    const parent = readTask(id);
+    if (!parent) { err(`у задачи «${id}» нет журнала в .volna/journal`); return 1; }
+    if (foreign(parent.id)) { err(`активна другая задача ${active}: следующего ребёнка берут у активной`); return 1; }
+    if (!childIds(parent.fm).length) { err(`у задачи ${parent.id} нет детей`); return 1; }
+    for (const node of childIds(parent.fm).map(nodeOf)) {
+      if (node.external) log(`ребёнок ${node.id} без журнала - пропущен`);
+    }
+    const next = openChildren(parent.fm)[0];
+    if (!next) {
+      writeFile(journalPath(parent.id), setField(setField(parent.text, "status", "приёмка", "children"), "updated", iso));
+      if (!active) writeState(parent.id);
+      log(`детей не осталось: ${parent.id} - приёмка`);
+      return 0;
+    }
+    const child = readTask(next.id);
+    activate(child, parent);
+    log(`активна ${child.id}; родитель ${parent.id} ждёт детей`);
+    return 0;
+  }
+
+  const child = readTask(String(args[0] ?? "").trim());
+  if (!child) { err(`у задачи «${String(args[0] ?? "").trim()}» нет журнала в .volna/journal`); return 1; }
+  const parentId = String(child.fm.parent ?? "").trim();
+  const parent = readTask(parentId);
+  if (!parent) { err(`у задачи ${child.id} нет родителя с журналом - это не ребёнок`); return 1; }
+  if (!childIds(parent.fm).includes(child.id)) { err(`родитель ${parent.id} не перечисляет ${child.id} в children: поправь связь`); return 1; }
+
+  if (command === "done") {
+    if (foreign(child.id)) { err(`активна другая задача ${active}: закрывают активную`); return 1; }
+    const mine = openChildren(child.fm);
+    if (mine.length) { err(`у ${child.id} открыты дети (${mine.map((n) => n.id).join(", ")}): сначала они, потом приёмка`); return 1; }
+    const own = taskStatus(child.fm, true).status;
+    const closed = own === "снята" ? child.text : setField(child.text, "status", "закрыта", "children");
+    const left = openChildren(parent.fm, child.id);
+    const status = left.length ? "ждёт детей" : "приёмка";
+    writeFile(journalPath(child.id), setField(closed, "updated", iso));
+    writeFile(journalPath(parent.id), setField(setField(parent.text, "status", status, "children"), "updated", iso));
+    writeState(parent.id);
+    log(`${child.id} ${own === "снята" ? "снята" : "закрыта"}; активна ${parent.id} - ${status}` +
+      `${left.length ? `, следующий ${left[0].id}` : ""}`);
+    return 0;
+  }
+
+  const own = taskStatus(child.fm, false).status;
+  if (!isOpenStatus(own)) { err(`задача ${child.id} ${own} - начинать нечего`); return 1; }
+  if (foreign(parent.id, child.id)) {
     err(`активна другая задача ${active}: сначала закрыть её или решить, что берём поверх`);
     return 1;
   }
-
-  const started = own === "новая" ? setField(childText, "status", "") : childText;
-  writeFile(journalPath(child), setField(started, "updated", iso));
-  writeFile(journalPath(parent), setField(setField(parentText, "status", "ждёт детей", "children"), "updated", iso));
-  writeFile(statePath, `${JSON.stringify({ ...state, active: child, updated: iso }, null, 2)}\n`);
-  log(`активна ${child}; родитель ${parent} ждёт детей`);
+  activate(child, parent);
+  log(`активна ${child.id}; родитель ${parent.id} ждёт детей`);
   return 0;
 }
 
