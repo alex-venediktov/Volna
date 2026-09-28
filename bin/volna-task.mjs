@@ -6,6 +6,8 @@
  * Использование:
  *   volna-task add <родитель> --slug слова-через-дефис --title "заголовок" --goal "постановка"
  *              [--type task] [--date ГГММДД]   завести ребёнка в конец очереди родителя
+ *   volna-task add <родитель> --tracker <id> [--url ссылка] --title ... --goal ...
+ *                                             ребёнок - уже заведённый элемент трекера, id журнала - его id
  *   volna-task start <ребёнок>                ребёнок становится активной задачей, родитель ждёт детей
  *   volna-task done <задача>                  задача закрыта: у ребёнка активен снова родитель (ждёт детей
  *                                             или приёмка), у корня дерева активная задача снимается
@@ -23,6 +25,9 @@ import { childIds, findVolnaDir, isOpenStatus, localStamp, openTasks, parseFront
 
 /** Slug ребёнка: латиница и цифры словами через дефис (`stages/intake.md`, шаг 4). */
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+){0,5}$/;
+
+/** Id задачи трекера: номер из 4-6 цифр либо ключ `ABC-1234` (`commands/task.md`). */
+const TRACKER_ID = /^(?:\d{4,6}|[A-Za-z][A-Za-z0-9_]*-\d+)$/;
 
 /** Разбор аргументов: команда, свободные слова и флаги `--имя значение` либо `--имя=значение`. */
 export function parseArgs(argv) {
@@ -89,17 +94,18 @@ function quoted(s) {
 }
 
 /** Журнал нового ребёнка: frontmatter по шаблону журнала, постановка - в «цели» (`volna-journal/templates`). */
-export function childJournal({ id, title, goal, type, parent, repos, now }) {
+export function childJournal({ id, title, goal, type, parent, repos, now, url = null }) {
   const stamp = localStamp(now);
   const iso = stamp.replace(" ", "T");
+  const tracked = url !== null;
   return [
     "---",
     `task: ${id}`,
     `title: ${quoted(title)}`,
     `type: ${type}`,
-    "mode: local",
-    'tracker: ""',
-    "source: текст в журнале",
+    `mode: ${tracked ? "tracker" : "local"}`,
+    `tracker: ${quoted(url ?? "")}`,
+    tracked ? "source:" : "source: текст в журнале",
     `parent: ${parent}`,
     "children: []",
     "status: новая",
@@ -123,7 +129,9 @@ export function childJournal({ id, title, goal, type, parent, repos, now }) {
     `**цель:** ${goal}`,
     `**сделано:** не начата - заведена разделением задачи ${parent}.`,
     "**следующий шаг:**",
-    "1. приём (`intake`): постановка из «цели» - в `вход:` лога дословно, дальше `analyze`.",
+    tracked
+      ? "1. приём (`intake`): элемент трекера - командой из `trackers/<трекер>/intake.md`, «цель» - к постановке, дальше `analyze`."
+      : "1. приём (`intake`): постановка из «цели» - в `вход:` лога дословно, дальше `analyze`.",
     "",
   ].join("\n");
 }
@@ -138,6 +146,7 @@ export async function run(argv, deps = {}) {
   const { command, args, flags } = parseArgs(argv);
   if (!command || command === "help" || flags.help) {
     log("volna-task add <родитель> --slug s --title t --goal g [--type task] [--date ГГММДД]");
+    log("volna-task add <родитель> --tracker id [--url ссылка] --title t --goal g [--type task]");
     log("volna-task start <ребёнок>");
     log("volna-task done <задача>");
     log("volna-task next [родитель]");
@@ -166,31 +175,37 @@ export async function run(argv, deps = {}) {
   if (command === "add") {
     const parent = String(args[0] ?? "").trim();
     const slug = String(flags.slug ?? "").trim();
+    const tracker = flags.tracker === undefined ? "" : String(flags.tracker).trim();
     const title = String(flags.title ?? "").trim();
     const goal = String(flags.goal ?? "").trim();
     if (!safeTaskId(parent)) { err(`родитель «${parent}» не годится в id задачи`); return 1; }
-    if (!SLUG.test(slug)) { err(`slug «${slug}» не годится: латиница и цифры словами через дефис`); return 1; }
+    if (flags.slug !== undefined && flags.tracker !== undefined) { err("--slug и --tracker вместе: ребёнок либо локальный, либо элемент трекера"); return 1; }
+    if (flags.tracker !== undefined && !TRACKER_ID.test(tracker)) { err(`id трекера «${tracker}» не годится: номер 4-6 цифр либо ключ ABC-1234`); return 1; }
+    if (flags.tracker === undefined && !SLUG.test(slug)) { err(`slug «${slug}» не годится: латиница и цифры словами через дефис`); return 1; }
+    if (flags.url !== undefined && flags.tracker === undefined) { err("--url только вместе с --tracker: у локального ребёнка ссылки нет"); return 1; }
+    if (flags.url === true) { err("--url без ссылки"); return 1; }
     if (!title || flags.title === true) { err("не назван заголовок (--title)"); return 1; }
     if (!goal || flags.goal === true) { err("не названа постановка (--goal)"); return 1; }
     const date = flags.date ? String(flags.date) : idDate(now);
-    if (!/^\d{6}$/.test(date)) { err(`дата «${date}» не в виде ГГММДД`); return 1; }
+    if (!tracker && !/^\d{6}$/.test(date)) { err(`дата «${date}» не в виде ГГММДД`); return 1; }
 
     const parentText = readFile(journalPath(parent));
     if (parentText == null) { err(`у родителя ${parent} нет журнала в .volna/journal`); return 1; }
     const pfm = parseFrontmatter(parentText);
     const { status } = taskStatus(pfm, parent === active);
     if (status === "закрыта" || status === "снята") { err(`родитель ${parent} ${status} - детей ему не заводят`); return 1; }
-    const id = `${date}-${slug}`;
+    const id = tracker || `${date}-${slug}`;
     const children = childIds(pfm);
-    if (children.includes(id) || readFile(journalPath(id)) != null) { err(`id ${id} занят: выбери другой slug`); return 1; }
+    if (children.includes(id) || readFile(journalPath(id)) != null) { err(`id ${id} занят: ${tracker ? "журнал элемента уже заведён" : "выбери другой slug"}`); return 1; }
 
     const type = flags.type && flags.type !== true ? String(flags.type) : "task";
     const repos = Array.isArray(pfm.repos) ? pfm.repos : [];
     const withChild = setField(setField(parentText, "children", `[${[...children, id].join(", ")}]`, "parent"), "updated", iso);
     if (withChild == null) { err(`журнал ${parent} без frontmatter`); return 1; }
-    writeFile(journalPath(id), childJournal({ id, title, goal, type, parent, repos, now }));
+    const url = tracker ? String(flags.url ?? "") : null;
+    writeFile(journalPath(id), childJournal({ id, title, goal, type, parent, repos, now, url }));
     writeFile(journalPath(parent), withChild);
-    log(`заведён ${id} - ребёнок ${children.length + 1} задачи ${parent}`);
+    log(`заведён ${id} - ребёнок ${children.length + 1} задачи ${parent}${tracker ? ", элемент трекера" : ""}`);
     return 0;
   }
 

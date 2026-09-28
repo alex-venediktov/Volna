@@ -48,6 +48,12 @@ function fakeClient(issue = {}, extra = {}) {
     async setDescription(key, md, opts) { calls.push(["setDescription", key, md, opts]); return {}; },
     async setEstimate(key, v) { calls.push(["setEstimate", key, v]); return {}; },
     async addWorklog(key, hours, opts) { calls.push(["addWorklog", key, hours, opts]); return {}; },
+    async createIssue(v) {
+      calls.push(["createIssue", v]);
+      if (extra.createFails) throw new Error("Jira POST /issue -> HTTP 400: issuetype");
+      return { key: "ABC-77", id: "10077" };
+    },
+    async projectTypes(p) { calls.push(["projectTypes", p]); return [{ name: "Задача" }, { name: "Подзадача" }]; },
     async projectStatuses() {
       calls.push(["projectStatuses"]);
       return extra.statuses ?? [{ name: "Task", statuses: [{ name: "В работе" }] }];
@@ -219,6 +225,80 @@ check("ключ задачи опознаётся по форме, а число
   const client = fakeClient();
   const { code, err } = await runCli(["estimate", "ABC-1"], { client });
   check("estimate без значений отказывается работать", code === 1 && err.includes("хотя бы одно"), err);
+}
+
+// --- create: заведение задачи и ребёнка ------------------------------------
+{
+  const client = fakeClient();
+  const { code, out } = await runCli(["create", "Подзадача", "--title", "Каркас", "--parent", "ABC-12"], { client });
+  const c = client.calls.find((x) => x[0] === "createIssue")?.[1] ?? {};
+  check("create с родителем: parent.key и проект из ключа родителя",
+    code === 0 && c.parent === "ABC-12" && c.project === "ABC" && c.type === "Подзадача" && c.summary === "Каркас", JSON.stringify(c));
+  check("create по умолчанию назначает на текущего пользователя", c.assignee === "acc-1", JSON.stringify(c));
+  check("create печатает ключ новой задачи и родителя", out.includes("ABC-77") && out.includes("родитель: ABC-12"), out);
+  check("create без --estimate оценку не пишет", !client.calls.some((x) => x[0] === "setEstimate"), JSON.stringify(client.calls));
+}
+{
+  const client = fakeClient();
+  const { code } = await runCli(["create", "Task", "--title", "Т", "--no-assign"], { client, env: { JIRA_PROJECT: "XYZ" } });
+  const c = client.calls.find((x) => x[0] === "createIssue")?.[1] ?? {};
+  check("create без родителя берёт проект из JIRA_PROJECT", code === 0 && c.project === "XYZ" && c.parent === undefined, JSON.stringify(c));
+  check("create --no-assign не назначает и не спрашивает пользователя",
+    c.assignee === undefined && !client.calls.some((x) => x[0] === "currentUser"), JSON.stringify(client.calls));
+}
+{
+  const client = fakeClient();
+  await runCli(["create", "Task", "--title", "Т", "--project", "QQ", "--parent", "ABC-1"], { client });
+  const c = client.calls.find((x) => x[0] === "createIssue")?.[1] ?? {};
+  check("create: --project важнее ключа родителя", c.project === "QQ", JSON.stringify(c));
+}
+{
+  const client = fakeClient();
+  const { code, err } = await runCli(["create", "Task", "--title", "Т"], { client, env: {} });
+  check("create без проекта - отказ до запроса", code === 1 && err.includes("Не задан проект") && client.calls.length === 0, err);
+}
+{
+  const client = fakeClient();
+  const { code } = await runCli(["create", "Task", "--parent", "ABC-1"], { client });
+  const bad = await runCli(["create", "Task", "--title", "Т", "--parent", "12345"], { client });
+  check("create без заголовка и с негодным родителем - отказ без запроса",
+    code === 1 && bad.code === 1 && client.calls.length === 0, JSON.stringify(client.calls));
+}
+{
+  const client = fakeClient({}, { createFails: true });
+  const { code, err } = await runCli(["create", "Sub-task", "--title", "Т", "--parent", "ABC-1"], { client });
+  check("create с непринятым типом: код не 0 и типы проекта списком",
+    code === 2 && err.includes("не создана") && err.includes("Подзадача"), err);
+}
+{
+  const client = fakeClient();
+  const { code, err } = await runCli(["create", "Task", "--title", "Т", "--parent", "ABC-1", "--dry-run"], { client });
+  check("create --dry-run ничего не шлёт и называет родителя",
+    code === 0 && client.calls.length === 0 && err.includes("ABC-1"), err);
+}
+{
+  const client = fakeClient();
+  const { code, out } = await runCli(["create", "Task", "--title", "Т", "--parent", "ABC-1", "--estimate", "2,5"], { client });
+  const e = client.calls.find((x) => x[0] === "setEstimate");
+  check("create --estimate пишет оценку и остаток новой задаче",
+    code === 0 && e?.[1] === "ABC-77" && e[2].original === 2.5 && e[2].remaining === 2.5 && out.includes("2.5"), JSON.stringify(e));
+  const zero = await runCli(["create", "Task", "--title", "Т", "--parent", "ABC-1", "--estimate", "0"], { client: fakeClient() });
+  check("create с нулевой оценкой - отказ", zero.code === 1, zero.err);
+}
+{
+  const seen = [];
+  const client = new JiraClient({
+    baseUrl: "https://e.atlassian.net", email: "i@p", token: "t",
+    fetchFn: (url, init) => {
+      seen.push({ url, body: Buffer.from(init.body).toString("utf8") });
+      return Promise.resolve({ ok: true, status: 201, text: async () => JSON.stringify({ key: "ABC-9" }) });
+    },
+  });
+  const res = await client.createIssue({ project: "ABC", type: "Подзадача", summary: "Т", description: "**жирно**", parent: "ABC-1" });
+  const f = JSON.parse(seen[0].body).fields;
+  check("createIssue шлёт родителя полем parent, описание wiki-разметкой",
+    seen[0].url.endsWith("/rest/api/2/issue") && f.parent?.key === "ABC-1" && f.project?.key === "ABC" &&
+    f.issuetype.name === "Подзадача" && f.description === "*жирно*" && res.key === "ABC-9", seen[0].body);
 }
 
 check("намерение dry-run называет ключ и действие",

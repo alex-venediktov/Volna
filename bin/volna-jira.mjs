@@ -18,6 +18,9 @@
  *   volna-jira state <ключ> <статус>       перевести задачу переходом рабочего процесса
  *   volna-jira time <ключ> <часы>          списать часы ([--comment текст])
  *   volna-jira estimate <ключ> --original N   оценка и остаток работ ([--remaining M])
+ *   volna-jira create <тип> --title T      завести задачу: [--parent ключ] [--project P]
+ *                                          [--estimate часы] [--body-file f] [--no-assign];
+ *                                          исполнитель - текущий пользователь
  *
  * Многострочные поля (описание, комментарий) принимают MARKDOWN: wiki-разметка Jira собирается
  * сама. Идентификатор задачи - строковый ключ вида ABC-2228, а не число.
@@ -30,7 +33,7 @@ import { fileURLToPath } from "node:url";
 import { JiraClient, jiraConfigFromEnv, summarizeIssue, issueKind, SEARCH_FIELDS } from "../lib/jira-client.mjs";
 import { loadEnv } from "../lib/env.mjs";
 
-const WRITE_COMMANDS = new Set(["comment", "describe", "state", "time", "estimate"]);
+const WRITE_COMMANDS = new Set(["comment", "describe", "state", "time", "estimate", "create"]);
 
 /** Выборка «мои задачи», если проект не задал свою в JIRA_JQL_MINE. */
 const DEFAULT_JQL_MINE = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC";
@@ -43,7 +46,7 @@ export function parseArgs(argv) {
   const flags = {};
   const positional = [];
   const withValue = ["comment", "body", "body-file", "original", "remaining", "max", "pages",
-    "project", "fields", "started"];
+    "project", "fields", "started", "title", "parent", "estimate"];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) {
@@ -105,6 +108,7 @@ export async function run(argv, deps = {}) {
       case "state": return await cmdState(client, args, log, err);
       case "time": return await cmdTime(client, args, flags, log, err);
       case "estimate": return await cmdEstimate(client, args, flags, log, err);
+      case "create": return await cmdCreate(client, args, flags, env, log, err, readFile);
       default:
         err(`Неизвестная команда: ${command}`);
         err(usage());
@@ -307,6 +311,63 @@ async function cmdEstimate(client, args, flags, log, err) {
   return 0;
 }
 
+/** Проект новой задачи: флаг, иначе префикс ключа родителя, иначе JIRA_PROJECT. */
+export function createProject(flags, env) {
+  if (flags.project && flags.project !== true) return String(flags.project);
+  const parent = typeof flags.parent === "string" ? flags.parent : "";
+  if (ISSUE_KEY.test(parent)) return parent.slice(0, parent.lastIndexOf("-"));
+  return env?.JIRA_PROJECT || "";
+}
+
+/** Завести задачу: исполнитель - мы сами, оценка пишется вторым запросом после заведения. */
+async function cmdCreate(client, args, flags, env, log, err, readFile) {
+  const type = String(args[0] ?? "").trim();
+  const title = typeof flags.title === "string" ? flags.title.trim() : "";
+  if (!type || !title) {
+    err("Нужен тип и заголовок: volna-jira create <тип> --title <заголовок> [--parent ABC-1] [--project ABC]");
+    return 1;
+  }
+  if (flags.parent !== undefined && !ISSUE_KEY.test(String(flags.parent))) {
+    err(`Родитель «${flags.parent}» - не ключ задачи вида ABC-2228`);
+    return 1;
+  }
+  const project = createProject(flags, env);
+  if (!project) {
+    err("Не задан проект: --project, ключ родителя (--parent) либо JIRA_PROJECT в .env");
+    return 1;
+  }
+  const estimate = flags.estimate !== undefined ? Number(String(flags.estimate).replace(",", ".")) : undefined;
+  if (estimate !== undefined && !(estimate > 0)) {
+    err(`Оценка «${flags.estimate}» - не положительное число часов`);
+    return 1;
+  }
+  const description = flags["body-file"] ? readFile(flags["body-file"]) : flags.body;
+  const assignee = flags["no-assign"] ? undefined : (await client.currentUser()).accountId;
+
+  let created;
+  try {
+    created = await client.createIssue({ project, type, summary: title,
+      description: typeof description === "string" ? description : undefined, parent: flags.parent, assignee });
+  } catch (e) {
+    err(`Задача не создана: ${e.message}`);
+    try {
+      const types = await client.projectTypes(project);
+      if (types.length) err(`Типы задач проекта ${project}: ${types.map((t) => t.name).join(", ")}`);
+    } catch { /* список типов - подсказка, его сбой причину не заслоняет */ }
+    return 2;
+  }
+  log(`Задача ${created.key} создана: ${title}`);
+  if (flags.parent) log(`родитель: ${flags.parent}`);
+  if (estimate === undefined) return 0;
+  try {
+    await client.setEstimate(created.key, { original: estimate, remaining: estimate });
+    log(`оценка: ${estimate} ч`);
+  } catch (e) {
+    err(`Оценка не записана (задача ${created.key} создана): ${e.message}`);
+  }
+  return 0;
+}
+
 /** Что команда собиралась изменить: печатается вместо запроса при --dry-run. */
 export function describeIntent(command, args, flags) {
   const key = args[0] ?? "<ключ>";
@@ -316,6 +377,8 @@ export function describeIntent(command, args, flags) {
     case "state": return `Намерение: перевести ${key} в "${args.slice(1).join(" ")}" переходом рабочего процесса.`;
     case "time": return `Намерение: списать ${args[1] ?? "?"} ч на ${key}.`;
     case "estimate": return `Намерение: записать оценку ${key} (original ${flags.original ?? "-"}, remaining ${flags.remaining ?? "-"}).`;
+    case "create": return `Намерение: завести ${args[0] ?? "<тип>"} "${flags.title ?? ""}"` +
+      `${flags.parent ? ` с родителем ${flags.parent}` : ""}.`;
     default: return `Намерение: ${command} ${args.join(" ")}`;
   }
 }
@@ -333,6 +396,8 @@ function usage() {
   state <ключ> <статус>          перевести переходом рабочего процесса
   time <ключ> <часы>             списать часы
   estimate <ключ> --original N   оценка и остаток (--remaining M)
+  create <тип> --title T         завести задачу ([--parent ключ] [--project P] [--estimate ч]
+                                 [--body-file f] [--no-assign])
 
 Переменные: JIRA_BASE_URL, JIRA_EMAIL, JIRA_TOKEN_FILE, JIRA_PROJECT, JIRA_JQL_MINE.
 Флаги: --dry-run, --json, --pages N, --max N.`;

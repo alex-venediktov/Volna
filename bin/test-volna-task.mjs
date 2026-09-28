@@ -129,6 +129,48 @@ const add = (w, slug, extra = []) => run(["add", "260929-root", "--slug", slug, 
   check("add: комментарий поля children у родителя сохранён", /^children: \[.*\]\s+# дети по порядку/m.test(w.fs.get(J("260929-root"))));
 }
 
+// add --tracker: ребёнок - элемент трекера
+{
+  const w = world(base());
+  const tr = (id, extra = []) => run(["add", "260929-root", "--tracker", id, "--title", `Элемент ${id}`, "--goal", `сделать ${id}`, ...extra], w.deps);
+  check("add --tracker с номером: код 0", (await tr("12345", ["--url", "https://tfs/_workitems/edit/12345"])) === 0, w.errs.join("; "));
+  check("add --tracker: журнал по id трекера как есть", w.fs.has(J("12345")));
+  const c = w.fm("12345");
+  check("add --tracker: ребёнок в режиме tracker со ссылкой из --url",
+    c.mode === "tracker" && c.tracker === "https://tfs/_workitems/edit/12345" && c.parent === "260929-root" && c.status === "новая", JSON.stringify(c));
+  const next = summaryField(readSummary(w.fs.get(J("12345")))?.body ?? "", "следующий шаг");
+  check("add --tracker: следующий шаг ведёт к чтению элемента трекера", next.includes("trackers/<трекер>/intake.md"), next);
+  check("add --tracker с ключом: регистр ключа не меняется", (await tr("ABC-12")) === 0 && w.fs.has(J("ABC-12")) && w.fm("ABC-12").tracker === "", w.errs.join("; "));
+  check("add --tracker: дети трекера встают в очередь родителя", childIds(w.fm("260929-root")).join(",") === "12345,ABC-12", childIds(w.fm("260929-root")).join(","));
+  check("add --tracker: вывод называет элемент трекера", w.out.some((l) => l.includes("12345") && l.includes("элемент трекера")), w.out.join("; "));
+  check("add локального ребёнка по-прежнему в режиме local", (await add(w, "local-one")) === 0 && w.fm("260929-local-one").mode === "local" && w.fm("260929-local-one").source === "текст в журнале");
+
+  check("next берёт первого ребёнка трекера", (await run(["next"], w.deps)) === 0 && JSON.parse(w.fs.get(STATE)).active === "12345", w.fs.get(STATE));
+  check("done ребёнка трекера возвращает работу родителю",
+    (await run(["done", "12345"], w.deps)) === 0 && JSON.parse(w.fs.get(STATE)).active === "260929-root" && w.fm("12345").status === "закрыта", w.errs.join("; "));
+  check("next после ребёнка трекера берёт следующего по очереди", (await run(["next"], w.deps)) === 0 && JSON.parse(w.fs.get(STATE)).active === "ABC-12", w.fs.get(STATE));
+}
+
+// add --tracker: отказы без записи
+{
+  const refuse = async (name, argv) => {
+    const w = world(base());
+    const code = await run(["add", "260929-root", ...argv, "--title", "Т", "--goal", "Г"], w.deps);
+    check(name, code === 1 && w.writes.length === 0, `${code}; ${w.errs.join("; ")}`);
+  };
+  await refuse("add --tracker вместе со --slug - отказ без записи", ["--tracker", "12345", "--slug", "x"]);
+  await refuse("add без --slug и без --tracker - отказ без записи", []);
+  await refuse("add --tracker с негодным id - отказ без записи", ["--tracker", "12"]);
+  await refuse("add --tracker с путём вместо id - отказ без записи", ["--tracker", "../12345"]);
+  await refuse("add --tracker без значения - отказ без записи", ["--tracker"]);
+  await refuse("add --url без ссылки - отказ без записи", ["--tracker", "12345", "--url"]);
+  await refuse("add --url у локального ребёнка - отказ без записи", ["--slug", "x", "--url", "https://t/1"]);
+  const w = world({ ...base(), [J("12345")]: ROOT.replace("260929-root", "12345") });
+  const code = await run(["add", "260929-root", "--tracker", "12345", "--title", "Т", "--goal", "Г"], w.deps);
+  check("add --tracker с занятым id - отказ без записи, slug не предлагается",
+    code === 1 && w.writes.length === 0 && w.errs.join(" ").includes("уже заведён") && !w.errs.join(" ").includes("slug"), w.errs.join("; "));
+}
+
 // add: отказы без записи
 {
   const refuse = async (name, files, argv) => {
