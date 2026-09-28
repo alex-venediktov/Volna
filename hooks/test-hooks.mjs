@@ -871,6 +871,7 @@ open: []
   check("начало сессии печатает путь наверх", s.includes("Путь: t-b <- t-root"), s);
   check("начало сессии печатает дерево от корня",
     s.includes("Дерево задач:") && s.includes("t-root учёт заказов") && s.includes("t-c печать - новая"), s);
+  check("начало сессии молчит о связи, когда родитель перечисляет ребёнка", !s.includes("не перечисляет"), s);
 
   writeFileSync(join(volnaDir, "state.json"),
     JSON.stringify({ active: "t-root", updated: "2026-09-29T10:00" }), "utf8");
@@ -883,6 +884,9 @@ open: []
     JSON.stringify({ active: "t-typo", updated: "2026-09-29T10:00" }), "utf8");
   const pt = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
   check("шапка называет неопознанный статус его значением", pt.includes("· статус «закончена» не опознан"), pt);
+  const so = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
+  check("начало сессии называет родителя, который не перечисляет ребёнка в children",
+    so.includes("Родитель t-root не перечисляет t-typo в children"), so);
 
   writeFileSync(join(volnaDir, "state.json"),
     JSON.stringify({ active: "t-b", updated: "2026-09-29T10:00" }), "utf8");

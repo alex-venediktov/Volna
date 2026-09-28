@@ -50,6 +50,10 @@ await runQuietly(async () => {
   if (cycle) lines.push(`Цепочка parent замкнута на ${cycle.id}: поправь поле parent в журналах.`);
   const up = chain.filter((node) => !node.cycle);
   if (up.length) lines.push(`Путь: ${[task, ...up.map((node) => node.id)].join(" <- ")}`);
+  // Связь с одной стороны: ребёнок выпадает из очереди родителя и из его счёта детей.
+  if (up.length && !up[0].children.includes(task)) {
+    lines.push(`Родитель ${up[0].id} не перечисляет ${task} в children: поправь поле children родителя.`);
+  }
   const rootId = up.length ? up[up.length - 1].id : task;
   if (up.length || childIds(fm).length) {
     lines.push("Дерево задач:");

@@ -522,7 +522,7 @@ export function childIds(fm) {
 }
 
 /** Идентификатор годится в имя файла журнала: без разделителей пути и перехода вверх. */
-function safeTaskId(id) {
+export function safeTaskId(id) {
   return Boolean(id) && !/[\\/]/.test(id) && !id.includes("..");
 }
 
