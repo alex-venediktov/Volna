@@ -482,6 +482,150 @@ export function partsLine(progress) {
   return `сделано ${progress.done}, осталось ${progress.left}${tail}`;
 }
 
+/** Жизненный цикл задачи - поле `status` журнала (skills/volna-journal, шаблон журнала). */
+export const TASK_STATUSES = ["новая", "в работе", "ждёт детей", "приёмка", "закрыта", "снята"];
+
+/** Опознание статуса без границ слова: `\w` в JS не видит кириллицу (process/js-word-boundary-misses-cyrillic). */
+const STATUS_PATTERNS = [
+  ["ждёт детей", /^жд[её]т\s+дет/iu],
+  ["в работе", /^в\s+работе/iu],
+  ["новая", /^нов/iu],
+  ["приёмка", /^при[её]мк/iu],
+  ["закрыта", /^закрыт/iu],
+  ["снята", /^снят/iu],
+];
+
+/**
+ * Статус задачи: явное поле `status`, иначе вывод для журналов без поля - неактивная задача
+ * на `close`/`cleanup` закрыта, остальное в работе. Нераспознанное значение - «не названо» с самим значением.
+ */
+export function taskStatus(fm, isActive = false) {
+  const raw = String(fm?.status ?? "").trim();
+  if (raw) {
+    const hit = STATUS_PATTERNS.find(([, re]) => re.test(raw));
+    if (!hit) return { status: "не названо", reason: raw };
+    const reason = hit[0] === "снята"
+      ? (/^снят\S*\s*[:(-]\s*(.*?)\)?\s*$/iu.exec(raw)?.[1] ?? "").trim()
+      : "";
+    return { status: hit[0], reason };
+  }
+  const stage = String(fm?.stage ?? "").trim();
+  if (!isActive && (stage === "close" || stage === "cleanup")) return { status: "закрыта", reason: "" };
+  return { status: "в работе", reason: "" };
+}
+
+/** Ссылки на детей из поля `children`: список или строка через запятую. */
+export function childIds(fm) {
+  const raw = fm?.children;
+  const list = Array.isArray(raw) ? raw : String(raw ?? "").split(",");
+  return list.map((s) => String(s).trim()).filter(Boolean);
+}
+
+/** Идентификатор годится в имя файла журнала: без разделителей пути и перехода вверх. */
+function safeTaskId(id) {
+  return Boolean(id) && !/[\\/]/.test(id) && !id.includes("..");
+}
+
+/**
+ * Узел дерева задач по файлу состояния, без лога: шапка читает детей на каждом ходе.
+ * Журнала нет - внешняя ссылка (родительская US бага в трекере), дерево на ней кончается.
+ */
+export function readNode(volnaDir, id, activeId = null) {
+  const node = { id, external: true, title: "", status: "нет журнала", reason: "", children: [], parent: "" };
+  if (!safeTaskId(id)) return node;
+  let text;
+  try {
+    text = readFileSync(join(volnaDir, "journal", `TASK-${id}.md`), "utf8");
+  } catch {
+    return node;
+  }
+  const fm = parseFrontmatter(text);
+  const { status, reason } = taskStatus(fm, id === activeId);
+  return { id, external: false, title: String(fm.title || ""), status, reason,
+    children: childIds(fm), parent: String(fm.parent || "").trim() };
+}
+
+/**
+ * Цепочка родителей снизу вверх, только задачи с журналом. Замкнутая цепочка кончается
+ * элементом `{ id, cycle: true }`: правка поля руками не должна вешать hook.
+ */
+export function ancestry(volnaDir, fm, selfId, limit = 8) {
+  const chain = [];
+  const seen = new Set([String(selfId)]);
+  let parent = String(fm?.parent ?? "").trim();
+  while (parent && chain.length < limit) {
+    if (seen.has(parent)) {
+      chain.push({ id: parent, cycle: true });
+      break;
+    }
+    seen.add(parent);
+    const node = readNode(volnaDir, parent);
+    if (node.external) break;
+    chain.push(node);
+    parent = node.parent;
+  }
+  return chain;
+}
+
+/** Счёт детей задачи по их журналам: родитель статусы детей не хранит, а читает. */
+export function childrenProgress(volnaDir, fm, activeId = null) {
+  const ids = childIds(fm);
+  if (!ids.length) return null;
+  const items = ids.map((id) => readNode(volnaDir, id, activeId));
+  const count = (name) => items.filter((it) => it.status === name).length;
+  const done = count("закрыта");
+  const dropped = count("снята");
+  return {
+    items,
+    total: items.length,
+    done,
+    dropped,
+    left: items.length - done - dropped,
+    current: items.find((it) => it.id === activeId) ?? items.find((it) => it.status === "в работе") ?? null,
+    next: items.find((it) => it.status === "новая") ?? null,
+  };
+}
+
+/** Счёт детей строкой для шапки; снятые названы отдельно, как у частей. */
+export function childrenLine(progress) {
+  if (!progress) return null;
+  const tail = progress.dropped ? `, снято ${progress.dropped}` : "";
+  return `дети: сделано ${progress.done}, осталось ${progress.left}${tail}`;
+}
+
+/** Статус узла строкой: у снятого - с причиной. */
+export function statusLabel(node) {
+  return node.reason ? `${node.status}: ${node.reason}` : node.status;
+}
+
+/**
+ * Дерево задач строками с отступом, от корня вниз; текущая отмечена «<- сейчас». Предел
+ * глубины и строк держит начало сессии в экране, повторно встреченный узел не обходится.
+ */
+export function taskTree(volnaDir, rootId, activeId = null, { maxDepth = 4, maxLines = 30 } = {}) {
+  const lines = [];
+  const seen = new Set();
+  let hidden = 0;
+  const walk = (id, depth) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const node = readNode(volnaDir, id, activeId);
+    const deeper = depth >= maxDepth && node.children.length ? ` (детей: ${node.children.length})` : "";
+    if (lines.length < maxLines) {
+      const name = node.title ? `${node.id} ${truncate(node.title, 50)}` : node.id;
+      lines.push(`${"  ".repeat(depth)}${name} - ${statusLabel(node)}${deeper}` +
+        `${id === activeId ? "  <- сейчас" : ""}`);
+    } else {
+      hidden++;
+    }
+    if (depth >= maxDepth) return;
+    for (const child of node.children) walk(child, depth + 1);
+  };
+  walk(rootId, 0);
+  if (hidden) lines.push(`... ещё ${hidden}`);
+  return lines;
+}
+
 /** Позиция этапа в флоу, 1-based; 0 - этап неизвестен. */
 export function stagePosition(stage) {
   const i = STAGES.indexOf(String(stage || "").trim());

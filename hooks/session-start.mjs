@@ -5,7 +5,7 @@
  * Единственное, о чём говорим вне задачи: неопознанные ключи state.json - из-за них задачи и
  * «нет», так что молчание здесь было бы последствием дефекта, а не его отсутствием.
  */
-import { readHookInput, loadActive, findVolnaDir, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, truncate, localStamp, partOf, partsProgress, openCheckpoint, STAGES }
+import { readHookInput, loadActive, findVolnaDir, runQuietly, emitContext, stagePosition, openItems, minutesSince, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, truncate, localStamp, partOf, partsProgress, taskStatus, statusLabel, ancestry, childIds, taskTree, openCheckpoint, STAGES }
   from "./lib/volna-state.mjs";
 
 await runQuietly(async () => {
@@ -21,12 +21,14 @@ await runQuietly(async () => {
   const { fm, task } = active;
   const stage = fm.stage || "?";
   const pos = stagePosition(stage);
+  const ownStatus = taskStatus(fm, true);
   const lines = [
     `Волна: активна задача ${task}${fm.title ? ` «${fm.title}»` : ""}` +
       `${fm.type ? ` (${fm.type})` : ""}`,
     `Этап: ${stage}${pos ? ` · ${pos}/${STAGES.length}` : ""}` +
       // Часть говорит то, чего не говорит этап: у задачи есть незакрытый остаток.
       `${partOf(fm) ? ` · часть ${partOf(fm)}` : ""}` +
+      `${ownStatus.status !== "в работе" ? ` · ${statusLabel(ownStatus)}` : ""}` +
       `${fm.branch ? ` · ветка ${fm.branch}` : ""}`,
     // Время машины для меток журнала: локальное, не UTC.
     `Сейчас: ${localStamp()}`,
@@ -40,6 +42,18 @@ await runQuietly(async () => {
     lines.push(`Части: ${progress.total}, сделано ${progress.done}, осталось ${progress.left}` +
       `${progress.dropped ? `, снято ${progress.dropped}` : ""}`);
     for (const it of progress.items) lines.push(`  ${it.n}. ${truncate(it.title, 60)} - ${it.state}`);
+  }
+
+  // Дерево задач от корня: возврат к работе - момент, когда очередь детей надо видеть целиком.
+  const chain = ancestry(active.volnaDir, fm, task);
+  const cycle = chain.find((node) => node.cycle);
+  if (cycle) lines.push(`Цепочка parent замкнута на ${cycle.id}: поправь поле parent в журналах.`);
+  const up = chain.filter((node) => !node.cycle);
+  if (up.length) lines.push(`Путь: ${[task, ...up.map((node) => node.id)].join(" <- ")}`);
+  const rootId = up.length ? up[up.length - 1].id : task;
+  if (up.length || childIds(fm).length) {
+    lines.push("Дерево задач:");
+    for (const line of taskTree(active.volnaDir, rootId, task)) lines.push(`  ${line}`);
   }
 
   // Начало сессии - единственное место, где уместен следующий шаг из резюме целиком.

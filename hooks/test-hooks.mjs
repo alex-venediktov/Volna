@@ -6,7 +6,8 @@ import { mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, existsS
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { readProfile, hasTracker, isPlaceholder, parseFrontmatter, partOf, partsProgress, partsLine, stampAhead, aheadLabel, STAGES, stagePosition }
+import { readProfile, hasTracker, isPlaceholder, parseFrontmatter, partOf, partsProgress, partsLine, stampAhead, aheadLabel, STAGES, stagePosition,
+  taskStatus, childIds, readNode, ancestry, childrenProgress, childrenLine, taskTree }
   from "./lib/volna-state.mjs";
 
 const volnaRoot = process.argv[2] || process.cwd();
@@ -789,6 +790,105 @@ open: []
   const g = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
     tool_input: { command: "git commit -m \"21571 часть 2\"" } });
   check("поля части не мешают гейту требовать запись этапа",
+    decision(g).permissionDecision === "deny", g.out);
+  write("implement");
+}
+
+// --- 9в. Дерево задач: родитель читает статусы детей из их журналов ------------
+{
+  check("статус из поля: снята с причиной", JSON.stringify(taskStatus({ status: "снята: дубль" })) ===
+    JSON.stringify({ status: "снята", reason: "дубль" }), JSON.stringify(taskStatus({ status: "снята: дубль" })));
+  check("статус из поля: причина в скобках тоже причина",
+    taskStatus({ status: "снята (отдельной задачей)" }).reason === "отдельной задачей",
+    taskStatus({ status: "снята (отдельной задачей)" }).reason);
+  check("статус из поля: «ждёт детей» и «ждет детей» одно и то же",
+    taskStatus({ status: "ждет детей" }).status === "ждёт детей", taskStatus({ status: "ждет детей" }).status);
+  check("статус с опечаткой называется «не названо», а не выводится молча",
+    taskStatus({ status: "закончена", stage: "cleanup" }).status === "не названо",
+    taskStatus({ status: "закончена" }).status);
+  check("статус с опечаткой несёт само значение - его видно в шапке",
+    taskStatus({ status: "закончена" }).reason === "закончена", taskStatus({ status: "закончена" }).reason);
+  check("пустое поле статуса читается выводом по этапу, как у журнала без поля",
+    taskStatus(parseFrontmatter("---\nstatus:\nstage: cleanup\n---\n")).status === "закрыта",
+    taskStatus(parseFrontmatter("---\nstatus:\nstage: cleanup\n---\n")).status);
+  check("журнал без статуса: неактивный на cleanup читается закрытым",
+    taskStatus({ stage: "cleanup" }, false).status === "закрыта", taskStatus({ stage: "cleanup" }).status);
+  check("журнал без статуса: активный на cleanup остаётся в работе",
+    taskStatus({ stage: "cleanup" }, true).status === "в работе", taskStatus({ stage: "cleanup" }, true).status);
+  check("дети из списка и из строки через запятую",
+    childIds({ children: ["a", "b"] }).join() === "a,b" && childIds({ children: "a, b" }).join() === "a,b" &&
+    childIds({ children: "" }).length === 0, JSON.stringify(childIds({ children: "a, b" })));
+
+  const jdir = join(volnaDir, "journal");
+  const task = (id, fields, title = id) => writeFileSync(join(jdir, `TASK-${id}.md`),
+    `---\ntask: ${id}\ntitle: "${title}"\ntype: task\nmode: local\n${fields}\nopen: []\n---\n\n` +
+    `## Состояние · 2026-09-29 10:00\n\n**цель:** ${title}.\n**следующий шаг:** дальше.\n`, "utf8");
+  task("t-root", "parent: 21500\nstatus: ждёт детей\nchildren: [t-a, t-b, t-c, t-d]\nstage: spec", "учёт заказов");
+  task("t-a", "parent: t-root\nstatus: закрыта\nstage: cleanup", "каркас");
+  task("t-b", "parent: t-root\nstage: implement\nchildren:\n  - t-b1", "расчёт стоимости");
+  task("t-c", "parent: t-root\nstatus: новая", "печать");
+  task("t-d", "parent: t-root\nstatus: снята: отдельной задачей", "миграция");
+  task("t-b1", "parent: t-b\nstatus: новая", "скидки");
+  writeFileSync(join(volnaDir, "state.json"),
+    JSON.stringify({ active: "t-b", updated: "2026-09-29T10:00" }), "utf8");
+
+  check("ребёнок без журнала - внешняя ссылка, а не ошибка",
+    readNode(volnaDir, "нет-такой").external === true, JSON.stringify(readNode(volnaDir, "нет-такой")));
+  check("идентификатор с переходом вверх не читается как путь",
+    readNode(volnaDir, "../state").external === true, JSON.stringify(readNode(volnaDir, "../state")));
+  const up = ancestry(volnaDir, { parent: "t-root" }, "t-b");
+  check("путь наверх кончается на родителе без журнала (US бага в трекере)",
+    up.map((n) => n.id).join() === "t-root", up.map((n) => n.id).join());
+  const prog = childrenProgress(volnaDir, readNode(volnaDir, "t-root"), "t-b");
+  check("счёт детей: закрытый сделан, снятый вне остатка",
+    childrenLine(prog) === "дети: сделано 1, осталось 2, снято 1", String(childrenLine(prog)));
+  check("текущий ребёнок - активная задача, следующий - первый новый",
+    prog.current?.id === "t-b" && prog.next?.id === "t-c", `${prog.current?.id} ${prog.next?.id}`);
+  check("задача без детей: счёта детей нет", childrenProgress(volnaDir, {}, "x") === null, "");
+
+  task("t-x", "parent: t-y\nstage: plan");
+  task("t-y", "parent: t-x\nstage: plan");
+  const loop = ancestry(volnaDir, { parent: "t-y" }, "t-x");
+  check("замкнутая цепочка parent кончается отметкой цикла, а не зависанием",
+    loop.at(-1)?.cycle === true && loop.length <= 2, JSON.stringify(loop));
+
+  const tree = taskTree(volnaDir, "t-root", "t-b");
+  check("дерево: корень, дети с отступом, внук глубже",
+    tree[0].startsWith("t-root учёт заказов - ждёт детей") && tree[2].startsWith("  t-b ") &&
+    tree[3].startsWith("    t-b1 "), tree.join(" | "));
+  check("дерево: текущая задача отмечена", tree[2].endsWith("<- сейчас"), tree[2]);
+  check("дерево: у снятого ребёнка названа причина",
+    tree.some((l) => l.includes("t-d миграция - снята: отдельной задачей")), tree.join(" | "));
+  check("дерево: предел глубины называет число скрытых детей",
+    taskTree(volnaDir, "t-root", "t-b", { maxDepth: 1 })[2].includes("(детей: 1)"),
+    taskTree(volnaDir, "t-root", "t-b", { maxDepth: 1 }).join(" | "));
+
+  const p = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("шапка ребёнка называет родителя и место в очереди", p.includes("· в t-root (2 из 4)"), p);
+  check("шапка ребёнка со своими детьми печатает их счёт", p.includes("· дети: сделано 0, осталось 1"), p);
+  check("шапка ребёнка в работе статус не печатает", !p.includes("· в работе"), p);
+  const s = ctx(run("session-start.mjs", { cwd: sandbox, hook_event_name: "SessionStart" }));
+  check("начало сессии печатает путь наверх", s.includes("Путь: t-b <- t-root"), s);
+  check("начало сессии печатает дерево от корня",
+    s.includes("Дерево задач:") && s.includes("t-root учёт заказов") && s.includes("t-c печать - новая"), s);
+
+  writeFileSync(join(volnaDir, "state.json"),
+    JSON.stringify({ active: "t-root", updated: "2026-09-29T10:00" }), "utf8");
+  const pr = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("шапка родителя: счёт детей и статус «ждёт детей»",
+    pr.includes("· дети: сделано 1, осталось 2, снято 1") && pr.includes("· ждёт детей") && !pr.includes("· в 21500"), pr);
+
+  task("t-typo", "parent: t-root\nstatus: закончена\nstage: plan", "опечатка");
+  writeFileSync(join(volnaDir, "state.json"),
+    JSON.stringify({ active: "t-typo", updated: "2026-09-29T10:00" }), "utf8");
+  const pt = ctx(run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit", prompt: "дальше" }));
+  check("шапка называет неопознанный статус его значением", pt.includes("· статус «закончена» не опознан"), pt);
+
+  writeFileSync(join(volnaDir, "state.json"),
+    JSON.stringify({ active: "t-b", updated: "2026-09-29T10:00" }), "utf8");
+  const g = run("gate.mjs", { cwd: sandbox, hook_event_name: "PreToolUse", tool_name: "Bash",
+    tool_input: { command: "git commit -m \"t-b: расчёт\"" } });
+  check("гейт на ребёнке требует запись этапа по журналу ребёнка",
     decision(g).permissionDecision === "deny", g.out);
   write("implement");
 }

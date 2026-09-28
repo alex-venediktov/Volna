@@ -7,7 +7,7 @@
  * добавляется ссылка и три строки резюме. Только точное совпадение по номеру - никакого
  * поиска по смыслу: он стоил бы токенов на каждом сообщении.
  */
-import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, partOf, partsProgress, partsLine, openCheckpoint, stampAhead, aheadLabel, STAGES }
+import { readHookInput, loadActive, findVolnaDir, readJournal, runQuietly, emitContext, stagePosition, openItems, minutesSince, truncate, readSummary, summaryField, summaryLag, summaryIssues, stateKeyWarning, localStamp, partOf, partsProgress, partsLine, taskStatus, ancestry, childrenProgress, childrenLine, openCheckpoint, stampAhead, aheadLabel, STAGES }
   from "./lib/volna-state.mjs";
 
 const MAX_LINES = 20;
@@ -32,6 +32,18 @@ await runQuietly(async () => {
     const progress = partsProgress(readSummary(active.text)?.body);
     const counts = partsLine(progress);
     if (counts) head.push(`· ${counts}`);
+    // Место в дереве задач: родитель и позиция среди его детей, свои дети - счётом из их журналов.
+    const [parent] = ancestry(active.volnaDir, fm, task, 1);
+    if (parent && !parent.cycle) {
+      const siblings = parent.children;
+      const k = siblings.indexOf(task) + 1;
+      head.push(`· в ${parent.id}${k ? ` (${k} из ${siblings.length})` : ""}`);
+    }
+    const kids = childrenLine(childrenProgress(active.volnaDir, fm, task));
+    if (kids) head.push(`· ${kids}`);
+    const { status, reason } = taskStatus(fm, true);
+    if (status === "не названо") head.push(`· статус «${truncate(reason, 30)}» не опознан`);
+    else if (status !== "в работе") head.push(`· ${status}`);
     if (fm.branch) head.push(`· ${fm.branch}`);
     // Фаза называется только когда она не «в работе»: у задачи на паузе и у заблокированной
     // следующий шаг не тот, что записан в журнале, и без строки это видно только человеку

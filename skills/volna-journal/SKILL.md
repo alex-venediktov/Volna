@@ -21,9 +21,16 @@ description: "Формат журнала работ — два файла: jour
 ## Frontmatter = состояние
 
 Поля и заполненный пример — в `templates/journal.template.md`: `task`, `title`, `type`
-(bug/story/task/research), `mode` (tracker/local), `tracker`, `source`, `parent`, `fix_task`
-(появляется на `deliver`), `branch`, `repos`, `stage`, `stages_done`, `skipped`
+(bug/story/task/research), `mode` (tracker/local), `tracker`, `source`, `parent`, `children`,
+`status`, `fix_task` (появляется на `deliver`), `branch`, `repos`, `stage`, `stages_done`, `skipped`
 (`[{stage, reason}]`), `open`, `started`, `updated`.
+
+**Дерево задач.** `children` - дети по порядку, он же очередь; у ребёнка `parent` указывает на
+родителя. Статусы детей родитель **не хранит**: шапка, начало сессии и `/volna:status` читают их
+из журналов детей. `parent` без журнала в `.volna/journal/` - внешняя ссылка (US бага в
+трекере), дерево на ней кончается. `status` - закрытый список: `новая` · `в работе` ·
+`ждёт детей` · `приёмка` · `закрыта` · `"снята: <причина>"`; пустое поле (и журнал без него)
+читается закрытым, если задача не активна и стоит на `close`/`cleanup`, иначе - в работе.
 
 `stage`, `stages_done`, `open` обновляются **на каждом этапе** — их читает hook шапки
 (`hooks/preamble.mjs`) и гейт на commit. На задаче из частей `stages_done` относится к **текущей**
