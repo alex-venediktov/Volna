@@ -13,6 +13,8 @@
  *                                             или приёмка), у корня дерева активная задача снимается
  *   volna-task next [родитель]                первый открытый ребёнок по порядку; открытых нет - приёмка
  *   volna-task list                           незакрытые задачи по журналам
+ *   volna-task migrate <задача>               части журнала -> дети: незакрытые - детьми <id>-p<N>,
+ *                                             закрытые и снятые - строкой в «сделано»
  *
  * Каталог `.volna` ищется вверх от рабочего до корня репозитория.
  * Коды возврата: 0 сделано, 1 отказ (ничего не записано), 3 сбой инструмента.
@@ -20,7 +22,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
-import { childIds, findVolnaDir, isOpenStatus, localStamp, openTasks, parseFrontmatter, readNode, safeTaskId, statusLabel, taskStatus }
+import { childIds, findVolnaDir, isOpenStatus, localStamp, openTasks, parseFrontmatter, partsProgress, readNode, readSummary, safeTaskId, statusLabel, taskStatus }
   from "../hooks/lib/volna-state.mjs";
 
 /** Slug ребёнка: латиница и цифры словами через дефис (`stages/intake.md`, шаг 4). */
@@ -112,8 +114,6 @@ export function childJournal({ id, title, goal, type, parent, repos, now, url = 
     "fix_task:",
     "branch:",
     `repos: [${repos.join(", ")}]`,
-    "part:",
-    "parts:",
     "stage: intake",
     "stages_done: []",
     "skipped: []",
@@ -136,6 +136,51 @@ export function childJournal({ id, title, goal, type, parent, repos, now, url = 
   ].join("\n");
 }
 
+/** Этапы, на которых у задачи с частями текущая часть не начата либо уже убрана: граница частей. */
+const PART_BOUNDARY = new Set(["cleanup", "intake"]);
+
+/**
+ * Перевод «Состояния» с частей на детей: `**части:**` уходит, закрытые части ложатся строкой
+ * в «сделано», «следующий шаг» ведёт к первому ребёнку. Null - секции «Состояние» нет.
+ */
+export function migratedSummary(text, { stamp, doneLines, firstChild }) {
+  const head = /^##[ \t]+Состояние[ \t]*·[ \t]*.*$/m.exec(text);
+  if (!head) return null;
+  const start = head.index + head[0].length;
+  const next = text.slice(start).search(/^##[ \t]/m);
+  const bodyEnd = next < 0 ? text.length : start + next;
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.slice(start, bodyEnd).split(/\r?\n/);
+  const find = (name) => lines.findIndex((l) => l.startsWith(`**${name}:**`) || l.startsWith(`**${name} `));
+  // Конец подпункта: следующий подпункт, иначе конец секции без хвостовых пустых строк.
+  const blockEnd = (i) => {
+    let j = i + 1;
+    while (j < lines.length && !lines[j].startsWith("**")) j++;
+    while (j > i + 1 && !lines[j - 1].trim()) j--;
+    return j;
+  };
+  const parts = find("части");
+  if (parts >= 0) lines.splice(parts, blockEnd(parts) - parts);
+  if (doneLines.length) {
+    const history = `до перевода на детей: ${doneLines.join("; ")}.`;
+    const done = find("сделано");
+    if (done >= 0) lines.splice(blockEnd(done), 0, history);
+    else {
+      const goal = find("цель");
+      lines.splice(goal >= 0 ? blockEnd(goal) : Math.min(1, lines.length), 0, `**сделано:** ${history}`);
+    }
+  }
+  const step = ["**следующий шаг:**", `1. \`/volna:task\` без аргумента - возьмёт первого ребёнка, ${firstChild}.`];
+  const ns = find("следующий шаг");
+  if (ns >= 0) lines.splice(ns, blockEnd(ns) - ns, ...step);
+  else {
+    let end = lines.length;
+    while (end > 0 && !lines[end - 1].trim()) end--;
+    lines.splice(end, 0, ...step);
+  }
+  return `${text.slice(0, head.index)}## Состояние · ${stamp}${lines.join(eol)}${text.slice(bodyEnd)}`;
+}
+
 export async function run(argv, deps = {}) {
   const log = deps.log ?? ((s) => process.stdout.write(`${s}\n`));
   const err = deps.err ?? ((s) => process.stderr.write(`${s}\n`));
@@ -151,9 +196,10 @@ export async function run(argv, deps = {}) {
     log("volna-task done <задача>");
     log("volna-task next [родитель]");
     log("volna-task list");
+    log("volna-task migrate <задача>");
     return 0;
   }
-  if (!["add", "start", "done", "next", "list"].includes(command)) { err(`неизвестная команда: ${command}`); return 3; }
+  if (!["add", "start", "done", "next", "list", "migrate"].includes(command)) { err(`неизвестная команда: ${command}`); return 3; }
 
   const volnaDir = deps.volnaDir ?? findVolnaDir(deps.cwd ?? process.cwd());
   if (!volnaDir || (!deps.volnaDir && !existsSync(volnaDir))) { err("каталог .volna не найден: «Волна» здесь не развёрнута"); return 3; }
@@ -227,6 +273,53 @@ export async function run(argv, deps = {}) {
     writeFile(journalPath(p.id), setField(setField(p.text, "status", "ждёт детей", "children"), "updated", iso));
     writeState(c.id);
   };
+
+  if (command === "migrate") {
+    const id = String(args[0] ?? "").trim();
+    const task = readTask(id);
+    if (!task) { err(`у задачи «${id}» нет журнала в .volna/journal`); return 1; }
+    const { status } = taskStatus(task.fm, id === active);
+    if (status === "закрыта" || status === "снята") { err(`задача ${id} ${status} - переводить нечего`); return 1; }
+    const body = readSummary(task.text)?.body ?? "";
+    const progress = partsProgress(body);
+    if (!progress) { err(`у задачи ${id} нет списка **части:** в «Состоянии» - переводить нечего`); return 1; }
+    const unnamed = progress.items.find((it) => it.state === "не названо");
+    if (unnamed) { err(`часть ${unnamed.n} без состояния из списка (не начата, в работе, сделано, снята): поправь строку`); return 1; }
+    const open = progress.items.filter((it) => it.state === "не начата" || it.state === "в работе");
+    if (!open.length) { err(`у задачи ${id} нет незакрытых частей: она закрывается обычным close`); return 1; }
+    const stage = String(task.fm.stage ?? "").trim();
+    const passed = Array.isArray(task.fm.stages_done) ? task.fm.stages_done : [];
+    if (progress.current && !PART_BOUNDARY.has(stage) && passed.length) {
+      err(`задача ${id} на этапе ${stage}: часть ${progress.current.n} в работе - довести её до deliver и отметить сделанной, затем перевести`); return 1;
+    }
+    const kids = open.map((it) => ({ ...it, id: `${id}-p${it.n}` }));
+    const children = childIds(task.fm);
+    const busy = kids.find((k) => children.includes(k.id) || readFile(journalPath(k.id)) != null);
+    if (busy) { err(`id ${busy.id} занят: журнал уже есть`); return 1; }
+
+    // Закрытые части - строкой как в списке, с датой и часами.
+    const rawLines = body.split(/\r?\n/).map((l) => l.trim());
+    const doneLines = progress.items.filter((it) => !open.includes(it))
+      .map((it) => rawLines.find((l) => l.startsWith(`${it.n}.`) || l.startsWith(`${it.n})`)) ?? `${it.n}. ${it.title} - ${it.state}`);
+    const summary = migratedSummary(task.text, { stamp, doneLines, firstChild: kids[0].id });
+    if (summary == null) { err(`у задачи ${id} нет секции «Состояние»`); return 1; }
+    let parentText = setField(summary, "children", `[${[...children, ...kids.map((k) => k.id)].join(", ")}]`, "parent");
+    if (parentText == null) { err(`журнал ${id} без frontmatter`); return 1; }
+    for (const key of ["part", "parts"]) if (key in task.fm) parentText = setField(parentText, key, "");
+    // Остаток ушёл в детей: своей работы у задачи нет, `/volna:task` без аргумента возьмёт ребёнка.
+    parentText = setField(setField(parentText, "status", "ждёт детей", "children"), "updated", iso);
+
+    const type = task.fm.type ? String(task.fm.type) : "task";
+    const repos = Array.isArray(task.fm.repos) ? task.fm.repos : [];
+    for (const k of kids) {
+      const goal = `${k.title} - часть ${k.n} задачи ${id} до перевода на детей; постановка и критерии части - лог ${id}, секции spec.`;
+      writeFile(journalPath(k.id), childJournal({ id: k.id, title: k.title, goal, type, parent: id, repos, now }));
+    }
+    writeFile(journalPath(id), parentText);
+    log(`задача ${id} переведена на детей: ${kids.map((k) => k.id).join(", ")}` +
+      `${doneLines.length ? `; закрытых частей в «сделано»: ${doneLines.length}` : ""}`);
+    return 0;
+  }
 
   if (command === "list") {
     const tasks = openTasks(volnaDir, active, new Set(), { listDir: deps.listDir ?? ((d) => readdirSync(d)), read: readFile });

@@ -404,5 +404,86 @@ const add = (w, slug, extra = []) => run(["add", "260929-root", "--slug", slug, 
   check("list без незакрытых задач так и говорит", none.out.join(" ") === "незакрытых задач нет", none.out.join(" "));
 }
 
+// migrate: части журнала -> дети
+{
+  const PARTS = `---
+task: 260801-big
+title: "Крупная работа"
+type: story
+mode: local
+parent:
+children: []
+repos: [web, api]
+part: 2
+parts: 4
+stage: cleanup
+stages_done: [spec, plan, implement, cleanup]
+updated: 2026-08-01T10:00
+---
+
+# 260801-big - крупная работа
+
+## Состояние · 2026-08-01 10:00
+
+**цель:** всё сразу
+**части:**
+1. схема хранения - сделано (2026-08-01, 3ч)
+2. приём шага - в работе
+3. печать - снята: отдельной задачей
+4. миграция - не начата
+**сделано:** часть 1 - схема
+**следующий шаг:**
+1. spec части 2
+**осторожно:** не трогать api
+`;
+  const files = () => ({ [J("260801-big")]: PARTS, [STATE]: `{"active": "260801-big", "muted": true}` });
+  const w = world(files());
+  const code = await run(["migrate", "260801-big"], w.deps);
+  check("migrate на границе частей: код 0", code === 0, w.errs.join("; "));
+  const p = w.fm("260801-big");
+  check("migrate: незакрытые части стали детьми <id>-p<N> по порядку",
+    childIds(p).join(",") === "260801-big-p2,260801-big-p4", childIds(p).join(","));
+  check("migrate: сделанная и снятая части детьми не стали", !w.fs.has(J("260801-big-p1")) && !w.fs.has(J("260801-big-p3")));
+  const c = w.fm("260801-big-p2");
+  check("migrate: ребёнок новый, с родителем, типом и репозиториями родителя",
+    c.status === "новая" && c.parent === "260801-big" && c.type === "story" && c.repos.join(",") === "web,api" && c.title === "приём шага", JSON.stringify(c));
+  const cBody = readSummary(w.fs.get(J("260801-big-p2")))?.body ?? "";
+  check("migrate: постановка ребёнка ведёт к критериям в логе родителя", (summaryField(cBody, "цель") ?? "").includes("лог 260801-big"), summaryField(cBody, "цель"));
+  check("migrate: у ребёнка нет полей частей", !/^part:/m.test(w.fs.get(J("260801-big-p2")) ?? "part:"));
+  check("migrate: у родителя part и parts пусты", !p.part && !p.parts, `${p.part}/${p.parts}`);
+  check("migrate: родитель ждёт детей - пустой аргумент возьмёт ребёнка", p.status === "ждёт детей", p.status);
+  const body = readSummary(w.fs.get(J("260801-big")))?.body ?? "";
+  check("migrate: подпункта «части» у родителя больше нет", !body.includes("**части:**"), body);
+  const done = summaryField(body, "сделано") ?? "";
+  check("migrate: сделанная и снятая части - строкой в «сделано» с датой и причиной",
+    done.startsWith("часть 1 - схема") && done.includes("1. схема хранения - сделано (2026-08-01, 3ч)") && done.includes("3. печать - снята: отдельной задачей"), done);
+  check("migrate: следующий шаг ведёт к первому ребёнку", (summaryField(body, "следующий шаг") ?? "").includes("260801-big-p2"), summaryField(body, "следующий шаг"));
+  check("migrate: прочие подпункты состояния на месте", summaryField(body, "осторожно") === "не трогать api" && summaryField(body, "цель") === "всё сразу", body);
+  check("migrate: state.json не трогается", !w.writes.includes(STATE));
+  check("migrate: после перевода next берёт первого ребёнка",
+    (await run(["next"], w.deps)) === 0 && JSON.parse(w.fs.get(STATE)).active === "260801-big-p2", w.fs.get(STATE));
+
+  const fresh = world({ [J("260801-big")]: PARTS.replace("stage: cleanup", "stage: spec").replace(/stages_done: .*/, "stages_done: []") });
+  check("migrate: задача без пройденных этапов тоже на границе", (await run(["migrate", "260801-big"], fresh.deps)) === 0, fresh.errs.join("; "));
+  const closed = world({ [J("260801-big")]: PARTS.replace("stage: cleanup", "stage: deliver").replace("приём шага - в работе", "приём шага - сделано (2026-08-02, 2ч)") });
+  check("migrate: часть в работе отмечена сделанной - граница и посреди флоу",
+    (await run(["migrate", "260801-big"], closed.deps)) === 0 && childIds(closed.fm("260801-big")).join(",") === "260801-big-p4", closed.errs.join("; "));
+
+  const refuse = async (name, text, want) => {
+    const x = world({ [J("260801-big")]: text, [STATE]: `{"active": "260801-big"}` });
+    const rc = await run(["migrate", "260801-big"], x.deps);
+    check(name, rc === 1 && x.writes.length === 0 && x.errs.join(" ").includes(want), `${rc}; ${x.errs.join("; ")}`);
+  };
+  await refuse("migrate посреди части - отказ без записи", PARTS.replace("stage: cleanup", "stage: implement"), "часть 2 в работе");
+  await refuse("migrate без списка частей - отказ без записи", PARTS.replace(/\*\*части:\*\*[\s\S]*?(?=\*\*сделано)/, ""), "нет списка");
+  await refuse("migrate без незакрытых частей - отказ без записи",
+    PARTS.replace("приём шага - в работе", "приём шага - сделано").replace("миграция - не начата", "миграция - сделано"), "обычным close");
+  await refuse("migrate с частью без состояния - отказ без записи", PARTS.replace("миграция - не начата", "миграция"), "без состояния");
+  await refuse("migrate закрытой задачи - отказ без записи", PARTS.replace("parent:", "parent:\nstatus: закрыта"), "закрыта");
+  const taken = world({ ...files(), [J("260801-big-p4")]: ROOT });
+  check("migrate с занятым id ребёнка - отказ без записи",
+    (await run(["migrate", "260801-big"], taken.deps)) === 1 && taken.writes.length === 0 && taken.errs.join(" ").includes("260801-big-p4"), taken.errs.join("; "));
+}
+
 console.log(failures ? `\nПРОВАЛЕНО: ${failures}` : "\nВСЕ ПРОВЕРКИ ПРОЙДЕНЫ");
 process.exit(failures ? 1 : 0);

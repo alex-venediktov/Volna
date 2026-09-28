@@ -49,6 +49,8 @@ await runQuietly(async () => {
     lines.push(`Части: ${progress.total}, сделано ${progress.done}, осталось ${progress.left}` +
       `${progress.dropped ? `, снято ${progress.dropped}` : ""}`);
     for (const it of progress.items) lines.push(`  ${it.n}. ${truncate(it.title, 60)} - ${it.state}`);
+    // Крупная работа делится на детей; журнал с частями переводится командой миграции.
+    if (progress.left) lines.push(`Журнал ведётся частями: перевести остаток на детей - volna-task migrate ${task} на границе частей.`);
   }
 
   // Дерево задач от корня: возврат к работе - момент, когда очередь детей надо видеть целиком.

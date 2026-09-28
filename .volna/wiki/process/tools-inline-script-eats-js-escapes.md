@@ -16,7 +16,7 @@
 
 **источник:**
 - `bin/test-volna-task.mjs:89` — `const statusLine = (s) => s.split("\n").find((l) => l.startsWith("status:"));`
-- `hooks/test-hooks.mjs:900` — `check("список незакрытых держит пять строк, остаток - счётом", (none.match(/\n  [^.\s]/g) ?? []).length === 5 &&`
+- `hooks/test-hooks.mjs:902` — `check("список незакрытых держит пять строк, остаток - счётом", (none.match(/\n  [^.\s]/g) ?? []).length === 5 &&`
 
 **проверено:** 2026-09-29
 
