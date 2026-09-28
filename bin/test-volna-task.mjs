@@ -279,7 +279,7 @@ const add = (w, slug, extra = []) => run(["add", "260929-root", "--slug", slug, 
 
   const other = await refuse("done при чужой активной задаче", snap(), ["done", "260929-two"]);
   check("done при чужой активной: она названа", /260929-one/.test(other.errs.join(" ")));
-  await refuse("done задачи без родителя", snap(), ["done", "260929-root"]);
+  await refuse("done корня при активном ребёнке", snap(), ["done", "260929-root"]);
 
   const nested = world(snap());
   await run(["add", "260929-one", "--slug", "leaf", "--title", "Лист", "--goal", "Г"], nested.deps);
@@ -297,6 +297,45 @@ const add = (w, slug, extra = []) => run(["add", "260929-root", "--slug", slug, 
   await run(["next"], broken.deps);
   check("next: ребёнок без журнала пропускается и называется", JSON.parse(broken.fs.get(STATE)).active === "260929-two" &&
     broken.out.some((l) => /260929-ghost без журнала/.test(l)), broken.out.join("; "));
+}
+
+// done корня: приёмка родителя и её провал
+{
+  const st = (w) => JSON.parse(w.fs.get(STATE));
+  const w = world(base());
+  await add(w, "one");
+  await add(w, "two");
+  await run(["start", "260929-one"], w.deps);
+  await run(["done", "260929-one"], w.deps);
+
+  const early = world(Object.fromEntries(w.fs));
+  const code = await run(["done", "260929-root"], early.deps);
+  check("done корня с открытым ребёнком - отказ без записи", code === 1 && early.writes.length === 0, `код ${code}`);
+  check("done корня с открытым ребёнком: ребёнок назван", /260929-two/.test(early.errs.join(" ")), early.errs.join("; "));
+
+  await run(["next"], w.deps);
+  await run(["done", "260929-two"], w.deps);
+  const fail = world(Object.fromEntries(w.fs));
+  await run(["add", "260929-root", "--slug", "gap", "--title", "Пробел", "--goal", "закрыть пробел приёмки"], fail.deps);
+  await run(["next"], fail.deps);
+  check("провал приёмки: новый ребёнок родителя в приёмке становится активным", st(fail).active === "260929-gap", st(fail).active);
+  check("провал приёмки: родитель снова ждёт детей", fail.fm("260929-root").status === "ждёт детей", fail.fm("260929-root").status);
+
+  const done = await run(["done", "260929-root"], w.deps);
+  check("done корня после детей: код 0", done === 0, w.errs.join("; "));
+  check("done корня: статус «закрыта»", w.fm("260929-root").status === "закрыта", w.fm("260929-root").status);
+  check("done корня: активная задача снята", !("active" in st(w)), JSON.stringify(st(w)));
+  check("done корня: прочие ключи state.json сохранены", st(w).muted === true);
+  check("done корня: вывод говорит, что активной задачи нет", /активной задачи нет/.test(w.out.at(-1)), w.out.at(-1));
+
+  const ext = world({ [J("260929-root")]: setField(ROOT, "parent", "12345"), [STATE]: `{"active": "260929-root"}` });
+  const e = await run(["done", "260929-root"], ext.deps);
+  check("done задачи с внешним родителем без журнала закрывает её как корень",
+    e === 0 && ext.fm("260929-root").status === "закрыта" && !("active" in st(ext)), `${e} ${ext.errs.join("; ")}`);
+  check("done с внешним родителем: вывод называет его", /родитель 12345 без журнала/.test(ext.out.at(-1)), ext.out.at(-1));
+  check("done корня без родителя: о внешнем родителе молчит", !/без журнала/.test(w.out.at(-1)), w.out.at(-1));
+  const s = await run(["start", "260929-root"], world({ [J("260929-root")]: setField(ROOT, "parent", "12345"), [STATE]: "{}" }).deps);
+  check("start задачи с внешним родителем - отказ: это не ребёнок", s === 1);
 }
 
 // list: незакрытые задачи

@@ -7,7 +7,8 @@
  *   volna-task add <родитель> --slug слова-через-дефис --title "заголовок" --goal "постановка"
  *              [--type task] [--date ГГММДД]   завести ребёнка в конец очереди родителя
  *   volna-task start <ребёнок>                ребёнок становится активной задачей, родитель ждёт детей
- *   volna-task done <ребёнок>                 ребёнок закрыт, активен снова родитель: ждёт детей или приёмка
+ *   volna-task done <задача>                  задача закрыта: у ребёнка активен снова родитель (ждёт детей
+ *                                             или приёмка), у корня дерева активная задача снимается
  *   volna-task next [родитель]                первый открытый ребёнок по порядку; открытых нет - приёмка
  *   volna-task list                           незакрытые задачи по журналам
  *
@@ -138,7 +139,7 @@ export async function run(argv, deps = {}) {
   if (!command || command === "help" || flags.help) {
     log("volna-task add <родитель> --slug s --title t --goal g [--type task] [--date ГГММДД]");
     log("volna-task start <ребёнок>");
-    log("volna-task done <ребёнок>");
+    log("volna-task done <задача>");
     log("volna-task next [родитель]");
     log("volna-task list");
     return 0;
@@ -249,15 +250,23 @@ export async function run(argv, deps = {}) {
   if (!child) { err(`у задачи «${String(args[0] ?? "").trim()}» нет журнала в .volna/journal`); return 1; }
   const parentId = String(child.fm.parent ?? "").trim();
   const parent = readTask(parentId);
-  if (!parent) { err(`у задачи ${child.id} нет родителя с журналом - это не ребёнок`); return 1; }
-  if (!childIds(parent.fm).includes(child.id)) { err(`родитель ${parent.id} не перечисляет ${child.id} в children: поправь связь`); return 1; }
+  const unlinked = () => err(`родитель ${parent.id} не перечисляет ${child.id} в children: поправь связь`);
 
   if (command === "done") {
     if (foreign(child.id)) { err(`активна другая задача ${active}: закрывают активную`); return 1; }
+    if (parent && !childIds(parent.fm).includes(child.id)) { unlinked(); return 1; }
     const mine = openChildren(child.fm);
     if (mine.length) { err(`у ${child.id} открыты дети (${mine.map((n) => n.id).join(", ")}): сначала они, потом приёмка`); return 1; }
     const own = taskStatus(child.fm, true).status;
     const closed = own === "снята" ? child.text : setField(child.text, "status", "закрыта", "children");
+    if (!parent) {
+      // Корень дерева: родителя нет или он внешний - активная задача снимается (`stages/cleanup.md`, шаг 2)
+      writeFile(journalPath(child.id), setField(closed, "updated", iso));
+      writeFile(statePath, `${JSON.stringify({ ...state, active: undefined, updated: iso }, null, 2)}\n`);
+      log(`${child.id} ${own === "снята" ? "снята" : "закрыта"}; активной задачи нет` +
+        `${parentId ? `; родитель ${parentId} без журнала - внешний` : ""}`);
+      return 0;
+    }
     const left = openChildren(parent.fm, child.id);
     const status = left.length ? "ждёт детей" : "приёмка";
     writeFile(journalPath(child.id), setField(closed, "updated", iso));
@@ -268,6 +277,8 @@ export async function run(argv, deps = {}) {
     return 0;
   }
 
+  if (!parent) { err(`у задачи ${child.id} нет родителя с журналом - это не ребёнок`); return 1; }
+  if (!childIds(parent.fm).includes(child.id)) { unlinked(); return 1; }
   const own = taskStatus(child.fm, false).status;
   if (!isOpenStatus(own)) { err(`задача ${child.id} ${own} - начинать нечего`); return 1; }
   if (foreign(parent.id, child.id)) {
