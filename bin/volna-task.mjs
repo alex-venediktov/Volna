@@ -130,7 +130,7 @@ export function childJournal({ id, title, goal, type, parent, repos, now, url = 
     `**сделано:** не начата - заведена разделением задачи ${parent}.`,
     "**следующий шаг:**",
     tracked
-      ? "1. приём (`intake`): элемент трекера - командой из `trackers/<трекер>/intake.md`, «цель» - к постановке, дальше `analyze`."
+      ? "1. приём (`intake`): элемент трекера - командой из `trackers/intake.md`, «цель» - к постановке, дальше `analyze`."
       : "1. приём (`intake`): постановка из «цели» - в `вход:` лога дословно, дальше `analyze`.",
     "",
   ].join("\n");

@@ -144,8 +144,9 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 
 ## CLI над трекером
 
-Плагин приносит `bin/volna-tfs.mjs` — чтение задач и запись в трекер из Bash. Путь зависит от
-версии плагина, поэтому определять его так:
+Плагин приносит `bin/volna-tfs.mjs` — чтение задач и запись в трекер из Bash. Этапы зовут его через
+общий `bin/volna-tracker.mjs` с тем же синтаксисом: шлюз выбирается строкой `трекер` профиля. Путь
+зависит от версии плагина, поэтому определять его так:
 
 ```bash
 CLI=$(ls -d ~/.claude/plugins/cache/volna/volna/*/bin/volna-tfs.mjs | sort -V | tail -1)

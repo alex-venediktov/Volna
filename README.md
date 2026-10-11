@@ -274,9 +274,10 @@ plugins/volna-craft/               второй плагин: ремесленн
 skills/
   volna-flow/SKILL.md              карта 13 этапов, автопроход, уровни required/expected/optional
   volna-flow/stages/*.md           детали этапа: вход, что делать, DoD, что в журнал, ошибки
-  volna-flow/trackers/<трекер>/*.md  как этап работает с конкретным трекером: команды и грабли
-                                   API. Открывается по строке `трекер` профиля; проект без
-                                   трекера не читает их никогда
+  volna-flow/trackers/*.md         как этап работает с трекером: команды общего CLI
+                                   volna-tracker. Проект без трекера не читает их никогда
+  volna-flow/trackers/<трекер>/*.md  то, что в общий CLI не легло: грабли конкретного API.
+                                   Открывается по строке `трекер` профиля
   volna-flow/templates/project.template.md   настройки проекта (команды, конвенции)
   volna-journal/SKILL.md           формат журнала, чек-пойнт, извлечение опыта
   volna-journal/templates/journal.template.md      состояние задачи (frontmatter + «Состояние»)

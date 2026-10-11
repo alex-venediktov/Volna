@@ -41,7 +41,7 @@ claude plugin validate .         # манифесты перед публика�
 
 Три слоя, между которыми проходят все интересные связи.
 
-**1. Инструкции для модели.** `skills/volna-flow/SKILL.md` — карта 13 этапов и правила автопрохода; `skills/volna-flow/stages/<этап>.md` — детали одного этапа (открывается только тот, который начинается); `skills/volna-flow/trackers/<трекер>/<этап>.md` — специфика конкретного трекера, открывается по строке профиля и никогда не читается проектом без трекера; `commands/<имя>.md` — точка входа человека, frontmatter с `description` и `argument-hint`.
+**1. Инструкции для модели.** `skills/volna-flow/SKILL.md` — карта 13 этапов и правила автопрохода; `skills/volna-flow/stages/<этап>.md` — детали одного этапа (открывается только тот, который начинается); `skills/volna-flow/trackers/<этап>.md` — команды `volna-tracker`, `trackers/<трекер>/<этап>.md` — что в них не легло (список — таблица общего файла); проект без трекера их не читает; `commands/<имя>.md` — точка входа человека, frontmatter с `description` и `argument-hint`.
 
 **2. Hooks** (`hooks/hooks.json`): `session-start.mjs`, `preamble.mjs` (шапка на каждое сообщение), `gate.mjs` (блокирует `git commit` без записи журнала и `git push` вне `deliver`), `stamp-guard.mjs` (`PostToolUse` на правку файла: метка секции журнала, ушедшая вперёд часов, называется в том же ходе). Всё общее — в `hooks/lib/volna-state.mjs`: поиск `.volna`, парсер frontmatter, чтение `state.json` и журнала, список `STAGES`.
 

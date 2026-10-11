@@ -139,7 +139,7 @@ const add = (w, slug, extra = []) => run(["add", "260929-root", "--slug", slug, 
   check("add --tracker: ребёнок в режиме tracker со ссылкой из --url",
     c.mode === "tracker" && c.tracker === "https://tfs/_workitems/edit/12345" && c.parent === "260929-root" && c.status === "новая", JSON.stringify(c));
   const next = summaryField(readSummary(w.fs.get(J("12345")))?.body ?? "", "следующий шаг");
-  check("add --tracker: следующий шаг ведёт к чтению элемента трекера", next.includes("trackers/<трекер>/intake.md"), next);
+  check("add --tracker: следующий шаг ведёт к чтению элемента трекера", next.includes("trackers/intake.md"), next);
   check("add --tracker с ключом: регистр ключа не меняется", (await tr("ABC-12")) === 0 && w.fs.has(J("ABC-12")) && w.fm("ABC-12").tracker === "", w.errs.join("; "));
   check("add --tracker: дети трекера встают в очередь родителя", childIds(w.fm("260929-root")).join(",") === "12345,ABC-12", childIds(w.fm("260929-root")).join(","));
   const tt = world(base());
