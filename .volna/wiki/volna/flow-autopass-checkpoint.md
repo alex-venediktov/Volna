@@ -20,6 +20,6 @@
 либо доходит до `/compact` с журналом, отставшим на пять этапов.
 
 **источник:**
-- `docs/STATUS.md` — «Чек-пойнт - шаг внутри автопрохода, а не только перед `/compact`»
+- `docs/DECISIONS.md:224` — «шаг внутри автопрохода, а не только перед `/compact`»
 
 **связи:** [[journal-restore-from-state]], [[journal-timestamp-from-system]]

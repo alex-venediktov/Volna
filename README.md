@@ -302,6 +302,9 @@ bin/test-volna-jira.mjs            64 проверки CLI и клиента н�
 install.ps1                        установка одной командой PowerShell
 .env.example                       контракт окружения: адреса, пути, путь к токену
 docs/STATUS.md                     состояние работ, решения, что осталось
+docs/status/versions.md            история версий плагина, новое сверху
+docs/status/done.md                что сделано по волнам и вне их
+docs/status/research.md            сводки разведок
 docs/ONBOARDING.md                 первая задача нового человека за 10 минут
 docs/INSTALL.md                    способы установки и что заполнить после
 docs/REMOTE.md                     отвечать на вопросы агента с телефона и что уходит наружу
