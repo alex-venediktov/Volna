@@ -23,4 +23,4 @@
 [[rules-exhausted-text-rule-goes-to-code]].
 
 **связи:** [[rules-rule-on-the-path]], [[flow-autopass-checkpoint]],
-[[rules-exhausted-text-rule-goes-to-code]]
+[[rules-exhausted-text-rule-goes-to-code]], [[journal-stamp-date-before-write]]

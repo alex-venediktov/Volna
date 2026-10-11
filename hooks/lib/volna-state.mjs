@@ -46,6 +46,15 @@ export function findVolnaDir(startDir) {
  * потребитель трактует по умолчанию (трекер есть, доставка полная).
  */
 export function readProfile(volnaDir) {
+  return readSection(volnaDir, "Профиль", { lowerValues: true });
+}
+
+/**
+ * Строки «- ключ: значение» секции «## <title>» файла .volna/project.md. Ключи - в нижнем
+ * регистре; значения - как записаны (без обратных кавычек), lowerValues - в нижнем регистре.
+ * Нет файла или секции - пустой объект.
+ */
+export function readSection(volnaDir, title, { lowerValues = false } = {}) {
   if (!volnaDir) return {};
   let text = "";
   try {
@@ -53,7 +62,8 @@ export function readProfile(volnaDir) {
   } catch {
     return {};
   }
-  const m = /^##[ \t]+Профиль[ \t]*$/m.exec(text);
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`^##[ \\t]+${escaped}[ \\t]*$`, "m").exec(text);
   if (!m) return {};
   const rest = text.slice(m.index + m[0].length);
   const next = rest.search(/^##[ \t]/m);
@@ -62,7 +72,8 @@ export function readProfile(volnaDir) {
   for (const line of body.split(/\r?\n/)) {
     const kv = /^\s*[-*]\s*([^:]+?)\s*:\s*(.*)$/.exec(line);
     if (!kv) continue;
-    const value = stripComment(kv[2]).trim().toLowerCase();
+    let value = stripComment(kv[2]).trim().replace(/^`(.*)`$/, "$1").trim();
+    if (lowerValues) value = value.toLowerCase();
     if (value) out[kv[1].trim().toLowerCase()] = value;
   }
   return out;

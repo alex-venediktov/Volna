@@ -30,6 +30,7 @@
 | тесты CLI над Jira | `node bin/test-volna-jira.mjs` |
 | тесты линта документации | `node bin/test-volna-doc.mjs` |
 | тесты дерева задач | `node bin/test-volna-task.mjs` |
+| тесты общего CLI трекера | `node bin/test-volna-tracker.mjs` |
 | линт документации репозитория | `node bin/volna-doc.mjs lint` |
 | замер стоимости компонентов | `claude plugin details volna@volna` |
 

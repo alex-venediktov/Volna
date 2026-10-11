@@ -20,7 +20,7 @@
 защита необратимого, а не сопровождение.
 
 **источник:**
-- `hooks/lib/volna-state.mjs:91` — `export const STATE_KEYS = ["active", "updated", "muted", "phase", "blocked"];`
+- `hooks/lib/volna-state.mjs:102` — `export const STATE_KEYS = ["active", "updated", "muted", "phase", "blocked"];`
 
 **проверено:** 2026-09-13
 
