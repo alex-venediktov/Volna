@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Общий CLI трекера для «Волны»: один глагол на все трекеры, шлюз выбирается строкой профиля
- * `трекер` в .volna/project.md. Шлюз - CLI своего трекера (volna-tfs, volna-jira): вызов уходит
+ * `трекер` в .volna/project.md. Шлюз - CLI своего трекера (volna-tfs, volna-jira, volna-tt): вызов уходит
  * в его run() как есть, поэтому вывод, --dry-run и коды выхода у них общие.
  *
  * Своего у адаптера три вещи:
@@ -47,6 +47,12 @@ export const GATEWAYS = {
     extraVerbs: ["whoami", "time", "estimate"],
     features: ["parent", "time", "estimate"],
     statuses: {},
+  },
+  "task-tracker": {
+    cli: "./volna-tt.mjs",
+    extraVerbs: [],
+    features: [],
+    statuses: { "в работе": "doing", "на проверке": "review", "закрыта": "done" },
   },
 };
 

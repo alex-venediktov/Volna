@@ -1,6 +1,6 @@
 /**
  * Проверка общего CLI трекера без сети: профиль и статусы подаются напрямую, шлюзы - настоящие
- * volna-tfs и volna-jira с подставным клиентом; ФС - только временный project.md для разбора секции. Главное, что проверяется: глагол
+ * volna-tfs, volna-jira и volna-tt с подставным клиентом; ФС - только временный project.md для разбора секции. Главное, что проверяется: глагол
  * контракта доходит до того же метода клиента, что прямой вызов шлюза; статус по смыслу
  * становится именем трекера; чего шлюз не умеет, туда ничего не уходит.
  *
@@ -44,6 +44,17 @@ function fakeJira() {
   };
 }
 
+/** Подставной клиент task-tracker: помнит вызовы, ничего не отправляет. */
+function fakeTt() {
+  const calls = [];
+  return {
+    calls,
+    project: "volna",
+    async moveTask(id, status) { calls.push(["moveTask", id, status]); return { id, status }; },
+    async commentTask(id, text) { calls.push(["commentTask", id, text]); return { id }; },
+  };
+}
+
 /** Прогон адаптера: вывод собирается, профиль и статусы - из аргументов. */
 async function call(argv, { tracker, statuses = {}, client, loadGateway } = {}) {
   const out = [];
@@ -62,7 +73,7 @@ check("трекер: нет -> отказ, шлюза нет", /нет трек�
 check("плейсхолдер трекера -> отказ «не заполнена»",
   /не заполнена/.test(resolveGateway({ "трекер": "<нет|tfs|jira>" }).error ?? ""));
 check("неизвестный трекер -> отказ со списком шлюзов",
-  /есть: tfs, jira/.test(resolveGateway({ "трекер": "youtrack" }).error ?? ""));
+  /есть: tfs, jira, task-tracker/.test(resolveGateway({ "трекер": "youtrack" }).error ?? ""));
 
 {
   const r = await call(["check"], { tracker: "нет" });
@@ -151,6 +162,34 @@ check("имя статуса не по смыслу уходит как есть
   check("jira: pr - код 4 «не умеет», клиент не вызван",
     r.code === EXIT_UNSUPPORTED && client.calls.length === 0 && /не умеет/.test(r.err), r.err);
 }
+
+// --- контракт на шлюзе task-tracker -------------------------------------------
+
+{
+  const client = fakeTt();
+  const r = await call(["state", "feature-3", "в-работе"], { tracker: "task-tracker", client });
+  check("task-tracker: state в-работе уходит в move_task статусом doing",
+    r.code === 0 && client.calls.some((c) => c[0] === "moveTask" && c[1] === "feature-3" && c[2] === "doing"), r.err);
+}
+{
+  const client = fakeTt();
+  const r = await call(["state", "feature-3", "закрыта"], { tracker: "task-tracker", client });
+  check("task-tracker: закрыта без строки секции -> done",
+    r.code === 0 && client.calls.some((c) => c[0] === "moveTask" && c[2] === "done"), r.err);
+}
+{
+  const client = fakeTt();
+  const r = await call(["comment", "1", "готово"], { tracker: "task-tracker", client });
+  check("task-tracker: comment доходит до comment_task того же id",
+    r.code === 0 && client.calls.some((c) => c[0] === "commentTask" && c[1] === "1" && c[2] === "готово"), r.err);
+}
+{
+  const client = fakeTt();
+  const r = await call(["time", "feature-3", "1.5"], { tracker: "task-tracker", client });
+  check("task-tracker: time - код 4 «не умеет», клиент не вызван",
+    r.code === EXIT_UNSUPPORTED && client.calls.length === 0, r.err);
+}
+check("трекер: task-tracker -> шлюз task-tracker", resolveGateway({ "трекер": "task-tracker" }).name === "task-tracker");
 
 // --- возможности и состав глаголов -------------------------------------------
 

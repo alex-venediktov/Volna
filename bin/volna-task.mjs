@@ -28,8 +28,8 @@ import { childIds, findVolnaDir, isOpenStatus, localStamp, openTasks, parseFront
 /** Slug ребёнка: латиница и цифры словами через дефис (`stages/intake.md`, шаг 4). */
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+){0,5}$/;
 
-/** Id задачи трекера: номер из 4-6 цифр либо ключ `ABC-1234` (`commands/task.md`). */
-const TRACKER_ID = /^(?:\d{4,6}|[A-Za-z][A-Za-z0-9_]*-\d+)$/;
+/** Id задачи трекера: номер (у task-tracker бывает и `1`) либо ключ `ABC-1234`, `feature-3` (`commands/task.md`). */
+const TRACKER_ID = /^(?:\d{1,9}|[A-Za-z][A-Za-z0-9_]*-\d+)$/;
 
 /** Разбор аргументов: команда, свободные слова и флаги `--имя значение` либо `--имя=значение`. */
 export function parseArgs(argv) {
@@ -226,7 +226,7 @@ export async function run(argv, deps = {}) {
     const goal = String(flags.goal ?? "").trim();
     if (!safeTaskId(parent)) { err(`родитель «${parent}» не годится в id задачи`); return 1; }
     if (flags.slug !== undefined && flags.tracker !== undefined) { err("--slug и --tracker вместе: ребёнок либо локальный, либо элемент трекера"); return 1; }
-    if (flags.tracker !== undefined && !TRACKER_ID.test(tracker)) { err(`id трекера «${tracker}» не годится: номер 4-6 цифр либо ключ ABC-1234`); return 1; }
+    if (flags.tracker !== undefined && !TRACKER_ID.test(tracker)) { err(`id трекера «${tracker}» не годится: номер либо ключ ABC-1234, feature-3`); return 1; }
     if (flags.tracker === undefined && !SLUG.test(slug)) { err(`slug «${slug}» не годится: латиница и цифры словами через дефис`); return 1; }
     if (flags.url !== undefined && flags.tracker === undefined) { err("--url только вместе с --tracker: у локального ребёнка ссылки нет"); return 1; }
     if (flags.url === true) { err("--url без ссылки"); return 1; }

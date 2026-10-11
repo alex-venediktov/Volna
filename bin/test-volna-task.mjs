@@ -142,6 +142,10 @@ const add = (w, slug, extra = []) => run(["add", "260929-root", "--slug", slug, 
   check("add --tracker: следующий шаг ведёт к чтению элемента трекера", next.includes("trackers/<трекер>/intake.md"), next);
   check("add --tracker с ключом: регистр ключа не меняется", (await tr("ABC-12")) === 0 && w.fs.has(J("ABC-12")) && w.fm("ABC-12").tracker === "", w.errs.join("; "));
   check("add --tracker: дети трекера встают в очередь родителя", childIds(w.fm("260929-root")).join(",") === "12345,ABC-12", childIds(w.fm("260929-root")).join(","));
+  const tt = world(base());
+  const ttAdd = (id) => run(["add", "260929-root", "--tracker", id, "--title", "Т", "--goal", "Г"], tt.deps);
+  check("add --tracker с коротким номером и с id feature-3 (task-tracker): оба приняты",
+    (await ttAdd("1")) === 0 && (await ttAdd("feature-3")) === 0 && tt.fs.has(J("1")) && tt.fs.has(J("feature-3")), tt.errs.join("; "));
   check("add --tracker: вывод называет элемент трекера", w.out.some((l) => l.includes("12345") && l.includes("элемент трекера")), w.out.join("; "));
   check("add локального ребёнка по-прежнему в режиме local", (await add(w, "local-one")) === 0 && w.fm("260929-local-one").mode === "local" && w.fm("260929-local-one").source === "текст в журнале");
 
@@ -160,7 +164,7 @@ const add = (w, slug, extra = []) => run(["add", "260929-root", "--slug", slug, 
   };
   await refuse("add --tracker вместе со --slug - отказ без записи", ["--tracker", "12345", "--slug", "x"]);
   await refuse("add без --slug и без --tracker - отказ без записи", []);
-  await refuse("add --tracker с негодным id - отказ без записи", ["--tracker", "12"]);
+  await refuse("add --tracker с негодным id - отказ без записи", ["--tracker", "12ab"]);
   await refuse("add --tracker с путём вместо id - отказ без записи", ["--tracker", "../12345"]);
   await refuse("add --tracker без значения - отказ без записи", ["--tracker"]);
   await refuse("add --url без ссылки - отказ без записи", ["--tracker", "12345", "--url"]);

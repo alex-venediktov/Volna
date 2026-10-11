@@ -21,6 +21,6 @@
 пустым коммитом.
 
 **источник:**
-- `.volna/project.md:43` — «`git add -A` перед коммитом»
+- `.volna/project.md:44` — «`git add -A` перед коммитом»
 
 **связи:** [[flow-active-task-gates-commit]], [[flow-capture-before-commit]]

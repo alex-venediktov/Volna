@@ -221,6 +221,27 @@ stages_done: [intake]
     prompt: "проверь UTF-8 в файле и заодно ABC-2228" });
   check("слово через дефис не перехватывает ход у настоящего ключа",
     ctx(r5).includes("TASK-ABC-2228.md"), ctx(r5));
+
+  // Id task-tracker - префикс вида в нижнем регистре и номер; голый короткий номер не узнаётся.
+  writeFileSync(join(volnaDir, "journal", "TASK-feature-12.md"), `---
+task: feature-12
+title: "Задача локального трекера"
+type: task
+stage: plan
+stages_done: [intake]
+---
+
+## Состояние · 2026-10-12 10:00
+
+**сделано:** постановка прочитана.
+`, "utf8");
+  const r6 = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit",
+    prompt: "а что по feature-12?" });
+  check("id task-tracker с префиксом в промпте поднимает журнал", ctx(r6).includes("TASK-feature-12.md"), ctx(r6));
+  const r7 = run("preamble.mjs", { cwd: sandbox, hook_event_name: "UserPromptSubmit",
+    prompt: "а что по 12?" });
+  check("голый номер 12 журнал feature-12 не поднимает", !ctx(r7).includes("feature-12"), ctx(r7));
+  rmSync(join(volnaDir, "journal", "TASK-feature-12.md"));
 }
 
 // --- 5. muted глушит шапку, но не гейт -----------------------------------------
