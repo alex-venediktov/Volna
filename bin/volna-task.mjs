@@ -4,7 +4,7 @@
  * модель по шаблону - обе стороны связи появляются одним вызовом.
  *
  * Использование:
- *   volna-task add <родитель> --slug слова-через-дефис --title "заголовок" --goal "постановка"
+ *   volna-task add <родитель> --slug слова-без-даты --title "заголовок" --goal "постановка"
  *              [--type task] [--date ГГММДД]   завести ребёнка в конец очереди родителя
  *   volna-task add <родитель> --tracker <id> [--url ссылка] --title ... --goal ...
  *                                             ребёнок - уже заведённый элемент трекера, id журнала - его id
@@ -190,7 +190,7 @@ export async function run(argv, deps = {}) {
 
   const { command, args, flags } = parseArgs(argv);
   if (!command || command === "help" || flags.help) {
-    log("volna-task add <родитель> --slug s --title t --goal g [--type task] [--date ГГММДД]");
+    log("volna-task add <родитель> --slug слова-без-даты --title t --goal g [--type task] [--date ГГММДД]");
     log("volna-task add <родитель> --tracker id [--url ссылка] --title t --goal g [--type task]");
     log("volna-task start <ребёнок>");
     log("volna-task done <задача>");
@@ -228,6 +228,12 @@ export async function run(argv, deps = {}) {
     if (flags.slug !== undefined && flags.tracker !== undefined) { err("--slug и --tracker вместе: ребёнок либо локальный, либо элемент трекера"); return 1; }
     if (flags.tracker !== undefined && !TRACKER_ID.test(tracker)) { err(`id трекера «${tracker}» не годится: номер либо ключ ABC-1234, feature-3`); return 1; }
     if (flags.tracker === undefined && !SLUG.test(slug)) { err(`slug «${slug}» не годится: латиница и цифры словами через дефис`); return 1; }
+    // slug с датой первым словом -> отказ: id собирается как <дата>-<slug> (commands/split.md)
+    const slugDate = flags.tracker === undefined ? /^(\d{6})(?:-(.+))?$/.exec(slug) : null;
+    if (slugDate) {
+      err(`slug «${slug}» начинается с даты, а id соберётся как <дата>-<slug>: передай --slug ${slugDate[2] ?? "<слова предмета>"}, другая дата - --date ${slugDate[1]}`);
+      return 1;
+    }
     if (flags.url !== undefined && flags.tracker === undefined) { err("--url только вместе с --tracker: у локального ребёнка ссылки нет"); return 1; }
     if (flags.url === true) { err("--url без ссылки"); return 1; }
     if (!title || flags.title === true) { err("не назван заголовок (--title)"); return 1; }

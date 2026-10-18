@@ -197,6 +197,14 @@ const add = (w, slug, extra = []) => run(["add", "260929-root", "--slug", slug, 
   await refuse("без постановки", base(), ["add", "260929-root", "--slug", "ok-slug", "--title", "Т"]);
   await refuse("без заголовка", base(), ["add", "260929-root", "--slug", "ok-slug", "--goal", "Г"]);
   await refuse("дата не ГГММДД", base(), argv(["--date", "2026-09-29"]));
+  const dated = await refuse("slug с датой первым словом", base(), ["add", "260929-root", "--slug", "260929-db-tables", "--title", "Т", "--goal", "Г"]);
+  check("slug с датой: отказ называет slug без даты и флаг --date",
+    dated.errs.join(" ").includes("--slug db-tables") && dated.errs.join(" ").includes("--date 260929"), dated.errs.join("; "));
+  await refuse("slug из одной даты", base(), ["add", "260929-root", "--slug", "260929", "--title", "Т", "--goal", "Г"]);
+  for (const slug of ["v2-export", "2024-report", "1234567-x"]) {
+    const w = world(base());
+    check(`slug ${slug}: цифры первым словом не шестью - ребёнок заведён`, (await add(w, slug)) === 0 && w.fs.has(J(`260929-${slug}`)), w.errs.join("; "));
+  }
   await refuse("родитель с переходом вверх, ведущим к настоящему журналу", base(), ["add", "x/../TASK-260929-root", "--slug", "ok-slug", "--title", "Т", "--goal", "Г"]);
   await refuse("родитель с разделителем пути", base(), ["add", "sub/260929-root", "--slug", "ok-slug", "--title", "Т", "--goal", "Г"]);
   await refuse("родитель без журнала", base(), ["add", "260929-nobody", "--slug", "ok-slug", "--title", "Т", "--goal", "Г"]);
