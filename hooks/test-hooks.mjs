@@ -4,6 +4,7 @@
  */
 import { mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { readProfile, hasTracker, isPlaceholder, parseFrontmatter, partOf, partsProgress, partsLine, stampAhead, aheadLabel, STAGES, stagePosition,
@@ -988,6 +989,40 @@ open: []
   check("расхождение названо крупной единицей: минуты, часы, дни",
     aheadLabel(20) === "20 мин" && aheadLabel(180) === "3 ч" && aheadLabel(2880) === "2 дн",
     `${aheadLabel(20)} / ${aheadLabel(180)} / ${aheadLabel(2880)}`);
+}
+
+// Ядро прозы volna-craft: SessionStart кладёт раздел "Ядро" скилла humanizer (plugins/volna-craft/hooks/prose-core.mjs)
+{
+  console.log("\n-- volna-craft: ядро прозы --");
+  const craftHook = join(volnaRoot, "plugins", "volna-craft", "hooks", "prose-core.mjs");
+  const skillText = readFileSync(join(volnaRoot, "plugins", "volna-craft", "skills", "humanizer", "SKILL.md"), "utf8");
+  const { extractCore, isDisabled } = await import(pathToFileURL(craftHook).href);
+  const runCraft = (env) => {
+    const res = spawnSync(process.execPath, [craftHook], {
+      input: "{}", encoding: "utf8", timeout: 10000, env: { ...process.env, VOLNA_PROSE_CORE: "", ...env },
+    });
+    return { code: res.status, out: (res.stdout || "").trim() };
+  };
+  const core = extractCore(skillText);
+  const on = runCraft({});
+  check("ядро прозы: hook отдаёт раздел «Ядро» из SKILL.md, а не свою копию",
+    on.code === 0 && core.length > 0 && ctx(on).endsWith(core), ctx(on).slice(0, 120));
+  check("ядро прозы: событие SessionStart",
+    JSON.parse(on.out || "{}")?.hookSpecificOutput?.hookEventName === "SessionStart", on.out.slice(0, 80));
+  check("ядро прозы не длиннее 1 600 знаков: оно оплачивается в каждой сессии",
+    core.length <= 1600, `${core.length} знаков`);
+  check("ядро прозы называет полный скилл", core.includes("volna-craft:humanizer"), core.slice(-160));
+  const off = runCraft({ VOLNA_PROSE_CORE: "off" });
+  check("VOLNA_PROSE_CORE=off: hook молчит и выходит с 0", off.code === 0 && off.out === "", off.out.slice(0, 80));
+  check("ядро прозы: отключают off, 0, false, no в любом регистре, пустое значение не отключает",
+    ["off", "0", "false", "No"].every((v) => isDisabled({ VOLNA_PROSE_CORE: v })) &&
+      !isDisabled({ VOLNA_PROSE_CORE: "" }) && !isDisabled({}));
+  check("ядро прозы: нет раздела - пусто, hook не пишет ничего",
+    extractCore("# Скилл\n\n## Другое\n\nтекст\n") === "");
+  check("ядро прозы: раздел до следующего заголовка второго уровня, CRLF не мешает",
+    extractCore("## Ядро\r\n\r\n- первое\r\n- второе\r\n\r\n## Дальше\r\nне ядро\r\n") === "- первое\n- второе");
+  check("ядро прозы: последний раздел файла читается до конца",
+    extractCore("## Ядро\n- одно\n### подраздел\n- два\n") === "- одно\n### подраздел\n- два");
 }
 
 console.log(failures === 0 ? "\nВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" : `\nПРОВАЛОВ: ${failures}`);

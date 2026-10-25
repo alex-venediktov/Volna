@@ -31,7 +31,7 @@
 ```
 /plugin marketplace add alex-venediktov/Volna
 /plugin install volna@volna          # процесс: флоу этапов, журнал, команды
-/plugin install volna-craft@volna    # ремесло: порт по эталону, стиль кода, тесты, сверка
+/plugin install volna-craft@volna    # ремесло: порт по эталону, стиль кода, тесты, сверка, проза
 ```
 
 Второй плагин необязателен: без него флоу работает, просто без ремесленных правил.
@@ -259,7 +259,7 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 | Плагин | Содержимое | Кому |
 |---|---|---|
 | `volna` | скиллы `volna-flow`, `volna-journal`, команды `/volna:*` — по одной на этап плюс служебные | всем, кто ведёт задачи |
-| `volna-craft` | `port-by-reference`, `code-comments`, `commit-style`, `test-style`, `test-fixtures`, `visual-compare` | тем, кто портирует legacy и держит строгие конвенции |
+| `volna-craft` | `port-by-reference`, `code-comments`, `commit-style`, `test-style`, `test-fixtures`, `visual-compare`, `prose-standard`, `humanizer` (ядро приходит в каждую сессию через hook) | тем, кто портирует legacy и держит строгие конвенции |
 
 Ремесленные скиллы обезличены от конкретного продукта: метод — в плагине, проектные детали —
 в `.volna/project.md`. Что осталось в рабочем репозитории и как разводить пересечения зон —
@@ -270,7 +270,7 @@ irm https://raw.githubusercontent.com/alex-venediktov/Volna/main/install.ps1 | i
 ```
 .claude-plugin/plugin.json         манифест плагина volna
 .claude-plugin/marketplace.json    каталог для /plugin marketplace add (оба плагина)
-plugins/volna-craft/               второй плагин: ремесленные скиллы + compare.py
+plugins/volna-craft/               второй плагин: ремесленные скиллы, compare.py, hook ядра прозы
 skills/
   volna-flow/SKILL.md              карта 13 этапов, автопроход, уровни required/expected/optional
   volna-flow/stages/*.md           детали этапа: вход, что делать, DoD, что в журнал, ошибки

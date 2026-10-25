@@ -1,12 +1,12 @@
 {
   "name": "volna-craft",
-  "description": "Ремесленные правила разработки: порт строго по эталону, стиль комментариев и коммитов, оформление тестов, оффлайн-фикстуры, дисциплина прозы, визуальная сверка с эталоном",
-  "version": "0.2.2",
+  "description": "Ремесленные правила разработки: порт строго по эталону, стиль комментариев и коммитов, оформление тестов, оффлайн-фикстуры, дисциплина прозы, проза без признаков машинного текста на русском и английском, визуальная сверка с эталоном",
+  "version": "0.3.0",
   "author": {
     "name": "Alexey Venediktov"
   },
   "homepage": "https://github.com/alex-venediktov/Volna",
   "repository": "https://github.com/alex-venediktov/Volna",
-  "keywords": ["delphi-port", "code-style", "tests", "fixtures", "prose", "visual-diff"],
+  "keywords": ["delphi-port", "code-style", "tests", "fixtures", "prose", "humanizer", "visual-diff"],
   "skills": ["./skills"]
 }

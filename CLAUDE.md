@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Маркетплейс из двух плагинов Claude Code (`.claude-plugin/marketplace.json`):
 
 - **`volna`** (корень репозитория) — флоу задачи: скиллы `skills/volna-flow` и `skills/volna-journal`, команды `commands/*.md`, hooks `hooks/*.mjs`, CLI `bin/*.mjs`;
-- **`volna-craft`** (`plugins/volna-craft/`) — только скиллы ремесленных правил, без hooks и кода.
+- **`volna-craft`** (`plugins/volna-craft/`) — скиллы ремесленных правил и один hook `SessionStart` (`hooks/prose-core.mjs`): он кладёт в сессию раздел «Ядро» скилла `humanizer`.
 
 Продукт здесь — **markdown-инструкции для модели плюс Node без зависимостей**. Сборки нет, `package.json` нет, все `.mjs` — ES-модули на голом Node. Правка текста в `skills/` или `commands/` меняет поведение так же реально, как правка кода.
 
