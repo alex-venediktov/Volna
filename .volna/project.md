@@ -32,8 +32,10 @@
 | тесты дерева задач | `node bin/test-volna-task.mjs` |
 | тесты общего CLI трекера | `node bin/test-volna-tracker.mjs` |
 | тесты шлюза task-tracker | `node bin/test-volna-tt.mjs` |
+| тесты замера расхода задачи | `node bin/test-volna-cost.mjs` |
 | линт документации репозитория | `node bin/volna-doc.mjs lint` |
 | замер стоимости компонентов | `claude plugin details volna@volna` |
+| замер расхода живой задачи по этапам | `node bin/volna-cost.mjs <задача>` |
 
 Сборки нет: плагин — это markdown и Node без зависимостей.
 
